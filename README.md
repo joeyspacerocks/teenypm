@@ -1,13 +1,17 @@
 # pm
-A tiny CLI project manager
+A tiny CLI project manager.
 
 ## Install
 
-pm requires Python 3 and colorama to be installed.
+`pm` requires Python 3 and [colorama](https://pypi.org/project/colorama/) to be installed.
 
-pm is a single script which can be run by either giving it execute permissions, or running it via Python)
+`pm` is a single script which can be run by either giving it execute permissions and putting it somewhere in your path, or running it using python - e.g.:
+
+`> python3 pm`
 
 ## Usage
+
+`pm` will create a small sqlite file in your current working directory when run named `pm.db`.
 
 * `pm` | `pm show` - show open issues
 * `pm all` | `pm show all` - show all issues

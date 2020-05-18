@@ -30,9 +30,12 @@ A tiny CLI project manager.
 
 ## Configuration
 
-There's not much to config.
+The editor used for the `addx`, `edit` and `plan` commands defaults to `vim`.
 
-VSCode
-install command line (shift + CMD + P - search "Shell Command: Install 'Code' command in path")
+You can specify an alternative by setting the environment variable `PM_EDITOR`.
 
-export PM_EDITOR="code --wait --new-window"
+For example, to use VS Code:
+
+`export PM_EDITOR="code --wait --new-window"`
+
+(Assumes that the `code` command has been installed from VS Code - see https://code.visualstudio.com/docs/setup/mac#_launching-from-the-command-line.)

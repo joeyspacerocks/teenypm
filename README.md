@@ -18,6 +18,8 @@ A tiny CLI project manager.
 * `pm show [tags]` - show issues with matching tags
 * `pm tags` - show a summary of all tags with issue counts
 * `pm add <tags> <title> [points]` - add an issue with optional complexity points (defaults to 1)
+* `pm addx <tags> <title> [points]` - same as `pm add` but opens editor for multiline text
+* `pm edit <id>` - open an editor to edit issue text
 * `pm rm <id>` - remove an issue
 * `pm end <id>` - mark issue as completed
 * `pm tag <tag> <id>` - add a tag to an issue
@@ -25,3 +27,12 @@ A tiny CLI project manager.
 * `pm tag <tag> <id>` - add a tag to an issue
 * `pm burn` - show a burndown chart with estimated finish time
 * `pm plan [tag]` - open an editor for entering multiple issues, optionally tagged with `<tag>`
+
+## Configuration
+
+There's not much to config.
+
+VSCode
+install command line (shift + CMD + P - search "Shell Command: Install 'Code' command in path")
+
+export PM_EDITOR="code --wait --new-window"

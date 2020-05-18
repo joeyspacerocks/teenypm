@@ -1,6 +1,7 @@
 #!/usr/local/bin/python3
 
 from sys import argv
+import os
 import os.path
 import sqlite3
 from colorama import Fore, Back, Style
@@ -26,10 +27,25 @@ def init_db():
 
     return db
 
-def fetch_entries(db, tags):
+def summary(msg):
+    parts = msg.split('\n')
+
+    if len(parts) > 1:
+        return '{} ...'.format(parts[0])
+    else:
+        return msg
+
+def fetch_entries(db, tags, id):
     c = db.cursor()
     result = []
-    for row in c.execute('SELECT e.rowid AS id, state, created as "created [timestamp]", done as "done [timestamp]", msg, points, GROUP_CONCAT(tag) AS tags FROM tag t INNER JOIN entry e ON e.rowid = t.entry GROUP BY e.rowid ORDER BY state DESC,e.rowid DESC'):
+
+    sql = 'SELECT e.rowid AS id, state, created as "created [timestamp]", done as "done [timestamp]", msg, points, GROUP_CONCAT(tag) AS tags FROM tag t INNER JOIN entry e ON e.rowid = t.entry'
+    if id:
+        cursor = c.execute(sql + ' WHERE e.rowid = ? GROUP BY e.rowid ORDER BY state DESC,e.rowid DESC', (id,))
+    else:
+        cursor = c.execute(sql + ' GROUP BY e.rowid ORDER BY state DESC,e.rowid DESC')
+
+    for row in cursor:
         match = False
         if len(tags) > 0:
             for t in tags:
@@ -56,7 +72,15 @@ def show_entries(db, tags, all):
     total = 0
     open = 0
 
-    for e in fetch_entries(db, tags):
+    entries = fetch_entries(db, tags, None)
+
+    maxtag = 0
+    for e in entries:
+        t = ','.join(e.tags)
+        if len(t) > maxtag:
+            maxtag = len(t)
+
+    for e in entries:
         total += 1
 
         if not all and not e.open:
@@ -72,16 +96,37 @@ def show_entries(db, tags, all):
             print(Style.DIM, end='')
             dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
 
-        print('{}{:0>4}{}  {}{:12}{} {} {}({}){} .. {}{}{}'.format(Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, e.msg, Style.DIM, dates, Style.RESET_ALL, Fore.CYAN, e.points, Fore.RESET))
+        msg = summary(e.msg)
+        print(('{}{:0>4}{}  {}{:' + str(maxtag) + '}{}  {}{}{} {}({}){} {}{}{}').format(Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.RESET_ALL, Fore.CYAN, e.points, Fore.RESET))
 
     print('{}{}{} open / {}{}{} total'.format(Fore.WHITE, open, Fore.RESET, Fore.WHITE, total, Fore.RESET))
+
+def show_full_entry(db, id):
+    entries = fetch_entries(db, (), id)
+    e = entries[0]
+
+    display_tags = ','.join(sorted(e.tags))
+    dates = e.created.strftime('%Y-%m-%d %H:%M')
+
+    if not e.open:
+        print(Style.DIM, end='')
+        dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
+
+    print(('{}{:0>4}{} | {}{}{} | {}{}{} | {}{}{}').format(Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Style.DIM, dates, Style.RESET_ALL, Fore.CYAN, e.points, Fore.RESET))
+    print('----------------------------------------------')
+    print(Fore.WHITE + e.msg + Fore.RESET)
 
 def show_tags(db):
     c = db.cursor()
     for row in c.execute('SELECT tag, COUNT(*) as count FROM tag GROUP BY tag ORDER BY tag'):
         print('{}{}{} - {}'.format(Fore.CYAN, row['tag'], Fore.RESET, row['count']))
 
-def add_entry(db, tags, msg, points):
+def add_entry(db, tags, msg, points, edit):
+    if edit:
+        content = from_editor(msg)
+        if content != None:
+            msg = ''.join(content)
+
     c = db.cursor()
     c.execute('INSERT INTO entry VALUES (CURRENT_TIMESTAMP, NULL, ?, ?, ?)', (msg, points, 'open'))
     id = c.lastrowid
@@ -90,8 +135,22 @@ def add_entry(db, tags, msg, points):
 
     db.commit()
 
-    print('Added {}{:0>4}{}: "{}"'.format(Fore.YELLOW, id, Style.RESET_ALL, msg))
-    
+    print('Added {}{:0>4}{}: {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.WHITE, summary(msg), Fore.RESET))
+
+def edit_entry(db, id):
+    entries = fetch_entries(db, (), id)
+    e = entries[0]
+
+    content = from_editor(e.msg)
+    if content != None:
+        msg = ''.join(content)
+
+    c = db.cursor()
+    c.execute('UPDATE entry SET msg = ? WHERE rowid = ?', (msg, id))
+    db.commit()
+
+    print('Modified {}{:0>4}{}: {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.WHITE, summary(msg), Fore.RESET))
+
 def end_entry(db, id):
     c = db.cursor()
     c.execute('UPDATE entry SET state = ?, done = CURRENT_TIMESTAMP WHERE rowid = ?', ('done', id))
@@ -225,16 +284,29 @@ def burndown(db, tags):
 
     print('Finish in {}{}{} days on {}{}{} {}(velocity {:.1f}){}'.format(Fore.WHITE + Style.BRIGHT, predicted, Style.RESET_ALL, Fore.WHITE + Style.BRIGHT, end_date.strftime('%A %d %b %Y'), Style.RESET_ALL, Style.DIM, velocity, Style.RESET_ALL))
 
-def make_a_plan(db, plan):
-    tmp_file = 'pm.plan'
-    os.system('vim ' + tmp_file)
+def from_editor(start_text):
+    tmp_file = '_pm_.txt'
+
+    if start_text:
+        f = open(tmp_file, "w")
+        f.write(start_text)
+        f.close()
+
+    os.system(os.getenv('PM_EDITOR', 'vim') + ' ' + tmp_file)
 
     if not os.path.isfile(tmp_file):
-        return
+        return []
 
     with open(tmp_file) as f:
         content = f.readlines()
-    
+
+    os.remove(tmp_file)
+
+    return content
+
+def make_a_plan(db, plan):
+    content = from_editor(None)
+
     for line in content:
         line = line.strip()
 
@@ -259,8 +331,6 @@ def make_a_plan(db, plan):
                 points = 1
 
             add_entry(db, tags, task['msg'], points)
-
-    os.remove(tmp_file)
     
 if __name__ == '__main__':
     db = init_db()
@@ -289,9 +359,12 @@ if __name__ == '__main__':
             if len(argv) > 0:
                 tags = argv[0].split(',')
 
-        show_entries(db, tags, show_all)
+        if len(tags) == 1 and tags[0].isdigit():
+            show_full_entry(db, tags[0])
+        else:
+            show_entries(db, tags, show_all)
     
-    elif cmd == 'add':
+    elif cmd == 'add' or cmd == 'addx':
         if len(argv) < 2:
             print("Usage: {0} add <tags> <msg> [points]".format(script))
         else:
@@ -299,7 +372,13 @@ if __name__ == '__main__':
                 points=int(argv[2])
             else:
                 points=1
-            add_entry(db, argv[0].split(','), argv[1], points)
+            add_entry(db, argv[0].split(','), argv[1], points, cmd == 'addx')
+
+    elif cmd == 'edit':
+        if len(argv) < 1:
+            print("Usage: {0} edit <id>".format(script))
+        else:
+            edit_entry(db, argv[0])
 
     elif cmd == 'end':
         if len(argv) < 1:

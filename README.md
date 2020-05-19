@@ -1,17 +1,19 @@
-# pm
-A tiny CLI project manager.
+# teenypm
+A teeny, tiny CLI project manager.
 
 ## Install
 
-`pm` requires Python 3 and [colorama](https://pypi.org/project/colorama/) to be installed.
+`teenypm` requires Python 3.7 and [colorama](https://pypi.org/project/colorama/).
 
-`pm` is a single script which can be run by either giving it execute permissions and putting it somewhere in your path, or running it using python - e.g.:
+`> pip3 install teenypm`
 
-`> python3 pm`
+Once installed you can execute it using:
+
+`pm`
 
 ## Usage
 
-`pm` will create a small sqlite file in your current working directory when run named `pm.db`.
+When run `pm` will create a small sqlite file in your current working directory named `pm.db`.
 
 * `pm` | `pm show` - show open issues
 * `pm all` | `pm show all` - show all issues
@@ -32,10 +34,10 @@ A tiny CLI project manager.
 
 The editor used for the `addx`, `edit` and `plan` commands defaults to `vim`.
 
-You can specify an alternative by setting the environment variable `PM_EDITOR`.
+You can specify an alternative by setting the `EDITOR` environment variable.
 
 For example, to use VS Code:
 
-`export PM_EDITOR="code --wait --new-window"`
+`export EDITOR="code --wait --new-window"`
 
 (Assumes that the `code` command has been installed from VS Code - see https://code.visualstudio.com/docs/setup/mac#_launching-from-the-command-line.)

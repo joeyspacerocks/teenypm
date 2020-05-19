@@ -1,15 +1,25 @@
+# -*- coding: utf-8 -*- 
 from sys import argv
 import os
 import os.path
 import sqlite3
 from colorama import Fore, Back, Style
-from types import SimpleNamespace
 import datetime
 from pprint import pprint
 import math
 import re
 
 DEFAULT_EDITOR = 'vi'
+
+class Entry:
+    def __init__(self, id, open, created, done, msg, points, tags):
+        self.id = id
+        self.open = open
+        self.created = created
+        self.done = done
+        self.msg = msg
+        self.points = points
+        self.tags = tags
 
 def init_db():
     filename = 'pm.db'
@@ -56,15 +66,12 @@ def fetch_entries(db, tags, id):
             match = True
 
         if match:
-            result.append(SimpleNamespace(**{
-                'id': row['id'],
-                'open': row['state'] == 'open',
-                'created': row['created'],
-                'done': row['done'],
-                'msg': row['msg'],
-                'points': row['points'],
-                'tags': row['tags'].split(',')
-            }))
+            result.append(Entry(
+                row['id'], row['state'] == 'open',
+                row['created'], row['done'],
+                row['msg'], row['points'],
+                row['tags'].split(',')
+            ))
 
     return result
 
@@ -91,13 +98,14 @@ def show_entries(db, tags, all):
 
         display_tags = ','.join(sorted(e.tags))
         dates = e.created.strftime('%Y-%m-%d %H:%M')
+        state_style = ''
 
         if all and not e.open:
-            print(Style.DIM, end='')
+            state_style = Style.DIM
             dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
 
         msg = summary(e.msg)
-        print(('{}{:0>4}{}  {}{:' + str(maxtag) + '}{}  {}{}{} {}({}){} {}{}{}').format(Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.RESET_ALL, Fore.CYAN, e.points, Fore.RESET))
+        print(('{}{}{:0>4}{}  {}{:' + str(maxtag) + '}{}  {}{}{} {}({}){} {}{}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.RESET_ALL, Fore.CYAN, e.points, Fore.RESET))
 
     print('{}{}{} open / {}{}{} total'.format(Fore.WHITE, open, Fore.RESET, Fore.WHITE, total, Fore.RESET))
 
@@ -109,7 +117,6 @@ def show_full_entry(db, id):
     dates = e.created.strftime('%Y-%m-%d %H:%M')
 
     if not e.open:
-        print(Style.DIM, end='')
         dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
 
     print(('{}{:0>4}{} | {}{}{} | {}{}{} | {}{}{}').format(Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Style.DIM, dates, Style.RESET_ALL, Fore.CYAN, e.points, Fore.RESET))
@@ -205,7 +212,7 @@ def burndown(db, tags):
     created = {}
     done = {}
 
-    for e in fetch_entries(db, tags):
+    for e in fetch_entries(db, tags, None):
         ckey = e.created.strftime("%Y%j")
         created[ckey] = created.get(ckey, 0) + e.points
 

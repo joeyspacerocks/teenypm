@@ -3,9 +3,7 @@ A teeny, tiny CLI project manager.
 
 ## Install
 
-`teenypm` requires Python 3.7 and [colorama](https://pypi.org/project/colorama/).
-
-`> pip3 install teenypm`
+`pip install teenypm`
 
 Once installed you can execute it using:
 
@@ -27,8 +25,11 @@ When run `pm` will create a small sqlite file in your current working directory 
 * `pm tag <tag> <id>` - add a tag to an issue
 * `pm untag <tag> <id>` - remove a tag from an issue
 * `pm tag <tag> <id>` - add a tag to an issue
-* `pm burn` - show a burndown chart with estimated finish time
 * `pm plan [tag]` - open an editor for entering multiple issues, optionally tagged with `<tag>`
+
+*Experimental*
+
+* `pm burn` - show a burndown chart with estimated finish time
 
 ## Configuration
 

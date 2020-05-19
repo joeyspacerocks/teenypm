@@ -1,5 +1,3 @@
-#!/usr/local/bin/python3
-
 from sys import argv
 import os
 import os.path
@@ -10,6 +8,8 @@ import datetime
 from pprint import pprint
 import math
 import re
+
+DEFAULT_EDITOR = 'vi'
 
 def init_db():
     filename = 'pm.db'
@@ -139,6 +139,11 @@ def add_entry(db, tags, msg, points, edit):
 
 def edit_entry(db, id):
     entries = fetch_entries(db, (), id)
+
+    if len(entries) < 1:
+        print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        return
+
     e = entries[0]
 
     content = from_editor(e.msg)
@@ -292,7 +297,7 @@ def from_editor(start_text):
         f.write(start_text)
         f.close()
 
-    os.system(os.getenv('PM_EDITOR', 'vim') + ' ' + tmp_file)
+    os.system(os.getenv('EDITOR', DEFAULT_EDITOR) + ' ' + tmp_file)
 
     if not os.path.isfile(tmp_file):
         return []
@@ -331,8 +336,8 @@ def make_a_plan(db, plan):
                 points = 1
 
             add_entry(db, tags, task['msg'], points)
-    
-if __name__ == '__main__':
+
+def main():
     db = init_db()
 
     script = argv.pop(0)
@@ -427,3 +432,6 @@ if __name__ == '__main__':
         print('{}Error: {} is not a recognized command{}'.format(Fore.RED, cmd, Style.RESET_ALL))
 
     db.close()
+
+if __name__ == '__main__':
+    main()

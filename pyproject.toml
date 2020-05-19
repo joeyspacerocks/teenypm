@@ -1,0 +1,16 @@
+[build-system]
+requires = ["flit_core >=2,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.metadata]
+module = "teenypm"
+author = "Joe Trewin"
+author-email = "joe.trewin@gmail.com"
+home-page = "https://github.com/joeyspacerocks/pm"
+classifiers = ["License :: OSI Approved :: Apache Software License"]
+requires=[
+    "colorama"
+]
+
+[tool.flit.scripts]
+pm = "teenypm:main"

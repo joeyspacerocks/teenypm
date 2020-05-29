@@ -342,7 +342,7 @@ def make_a_plan(db, plan):
             else:
                 points = 1
 
-            add_entry(db, tags, task['msg'], points)
+            add_entry(db, tags, task['msg'], points, False)
 
 def main():
     db = init_db()

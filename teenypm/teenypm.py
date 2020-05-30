@@ -47,6 +47,7 @@ def init_db():
     c.execute('CREATE TABLE IF NOT EXISTS history (entry INT, event TEXT, date INT)')
 
     # migrate pre-history entries - if no history present
+    c.execute("UPDATE entry SET state = 'backlog' WHERE state = 'open'")
     count = c.execute('SELECT count(*) as count from history').fetchone()['count']
     if count == 0:
         c.execute("INSERT INTO history SELECT rowid, 'create', created FROM entry")
@@ -79,9 +80,9 @@ def fetch_entries(db, tags, id):
 
     sql = 'SELECT e.rowid AS id, state, msg, points, GROUP_CONCAT(tag) AS tags FROM tag t INNER JOIN entry e ON e.rowid = t.entry'
     if id:
-        c.execute(sql + ' WHERE e.rowid = ? GROUP BY e.rowid ORDER BY state DESC,e.rowid DESC', (id,))
+        c.execute(sql + ' WHERE e.rowid = ? GROUP BY e.rowid', (id,))
     else:
-        c.execute(sql + ' GROUP BY e.rowid ORDER BY state DESC,e.rowid DESC')
+        c.execute(sql + ' GROUP BY e.rowid')
 
     for row in c:
         match = False
@@ -101,7 +102,8 @@ def fetch_entries(db, tags, id):
                 fetch_history(db, row['id'])
             ))
 
-    return result
+    state_order = ['doing', 'backlog', 'done']
+    return sorted(result, key=lambda e: (state_order.index(e.state), -e.id))
 
 def show_entries(db, tags, all):
     total = 0
@@ -131,9 +133,11 @@ def show_entries(db, tags, all):
         if all and not e.open:
             state_style = Style.DIM
             dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
+        elif e.state == 'doing':
+            state_style = Style.BRIGHT + Back.BLUE
 
         msg = summary(e.msg)
-        print(('{}{}{:0>4}{}  {}{:' + str(maxtag) + '}{}  {}{}{} {}({}){} {}{}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.RESET_ALL, Fore.CYAN, e.points, Fore.RESET))
+        print(('{}{}{:0>4}{}  {}{:' + str(maxtag) + '}{}  {}{}{} {}({}){} {}{}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.NORMAL, Fore.CYAN, e.points, Style.RESET_ALL))
 
     print('{}{}{} open / {}{}{} total'.format(Fore.WHITE, open, Fore.RESET, Fore.WHITE, total, Fore.RESET))
 
@@ -166,7 +170,7 @@ def add_entry(db, tags, msg, points, edit):
             msg = ''.join(content)
 
     c = db.cursor()
-    c.execute("INSERT INTO entry (msg, points, state) VALUES (?, ?, 'open')", (msg, points))
+    c.execute("INSERT INTO entry (msg, points, state) VALUES (?, ?, 'backlog')", (msg, points))
 
     id = c.lastrowid
     add_history(c, id, 'create')
@@ -203,6 +207,18 @@ def edit_entry(db, id):
     db.commit()
 
     print('Modified {}{:0>4}{}: {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.WHITE, summary(msg), Fore.RESET))
+
+def start_entry(db, id):
+    if change_state(db, id, 'doing'):
+        print('Started {}{:0>4}{}'.format(Fore.YELLOW, id, Style.RESET_ALL))
+    else:
+        print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
+
+def backlog_entry(db, id):
+    if change_state(db, id, 'backlog'):
+        print('Moved {}{:0>4}{} to backlog'.format(Fore.YELLOW, id, Style.RESET_ALL))
+    else:
+        print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
 
 def end_entry(db, id):
     if change_state(db, id, 'done'):
@@ -428,6 +444,18 @@ def main():
             print("Usage: {0} edit <id>".format(script))
         else:
             edit_entry(db, argv[0])
+
+    elif cmd == 'start':
+        if len(argv) < 1:
+            print("Usage: {0} start <id>".format(script))
+        else:
+            start_entry(db, argv[0])
+
+    elif cmd == 'backlog':
+        if len(argv) < 1:
+            print("Usage: {0} backlog <id>".format(script))
+        else:
+            backlog_entry(db, argv[0])
 
     elif cmd == 'end':
         if len(argv) < 1:

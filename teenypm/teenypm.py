@@ -12,29 +12,47 @@ import re
 DEFAULT_EDITOR = 'vi'
 
 class Entry:
-    def __init__(self, id, open, created, done, msg, points, tags):
+    def __init__(self, id, state, msg, points, tags, history):
         self.id = id
-        self.open = open
-        self.created = created
-        self.done = done
+        self.state = state
+        self.open = state != 'done'
         self.msg = msg
         self.points = points
         self.tags = tags
+        self.history = history
+
+        for e in history:
+            if e.event == 'create':
+                self.created = e.date
+            elif e.event == 'done':
+                self.done = e.date
+
+class Event:
+    def __init__(self, entry, event, date):
+        self.entry = entry
+        self.event = event
+        self.date = date
 
 def init_db():
     filename = 'pm.db'
-    existed = os.path.isfile(filename)
+    if not os.path.isfile(filename):
+        print('No teenypm database found - creating new one: ' + filename)
 
     db = sqlite3.connect(filename, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     db.row_factory = sqlite3.Row
 
-    if not existed:
-        c = db.cursor()
-        c.execute('CREATE TABLE entry (created INT, done INT, msg TEXT, points INT, state TEXT)')
-        c.execute('CREATE TABLE tag (tag TEXT, entry INT)')
-        db.commit()
-        print('No pm database found ... created ' + filename)
+    c = db.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS entry (msg TEXT, points INT, state TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS tag (tag TEXT, entry INT)')
+    c.execute('CREATE TABLE IF NOT EXISTS history (entry INT, event TEXT, date INT)')
 
+    # migrate pre-history entries - if no history present
+    count = c.execute('SELECT count(*) as count from history').fetchone()['count']
+    if count == 0:
+        c.execute("INSERT INTO history SELECT rowid, 'create', created FROM entry")
+        c.execute("INSERT INTO history SELECT rowid, 'done', done FROM entry WHERE done IS NOT NULL")
+
+    db.commit()
     return db
 
 def summary(msg):
@@ -45,17 +63,27 @@ def summary(msg):
     else:
         return msg
 
+def fetch_history(db, entry):
+    c = db.cursor()
+    history = []
+    for row in c.execute('SELECT event, date as "date [timestamp]" FROM history WHERE entry = ?', (entry,)):
+        history.append(Event(
+            entry, row['event'], row['date']
+        ))
+
+    return history
+
 def fetch_entries(db, tags, id):
     c = db.cursor()
     result = []
 
-    sql = 'SELECT e.rowid AS id, state, created as "created [timestamp]", done as "done [timestamp]", msg, points, GROUP_CONCAT(tag) AS tags FROM tag t INNER JOIN entry e ON e.rowid = t.entry'
+    sql = 'SELECT e.rowid AS id, state, msg, points, GROUP_CONCAT(tag) AS tags FROM tag t INNER JOIN entry e ON e.rowid = t.entry'
     if id:
-        cursor = c.execute(sql + ' WHERE e.rowid = ? GROUP BY e.rowid ORDER BY state DESC,e.rowid DESC', (id,))
+        c.execute(sql + ' WHERE e.rowid = ? GROUP BY e.rowid ORDER BY state DESC,e.rowid DESC', (id,))
     else:
-        cursor = c.execute(sql + ' GROUP BY e.rowid ORDER BY state DESC,e.rowid DESC')
+        c.execute(sql + ' GROUP BY e.rowid ORDER BY state DESC,e.rowid DESC')
 
-    for row in cursor:
+    for row in c:
         match = False
         if len(tags) > 0:
             for t in tags:
@@ -67,10 +95,10 @@ def fetch_entries(db, tags, id):
 
         if match:
             result.append(Entry(
-                row['id'], row['state'] == 'open',
-                row['created'], row['done'],
+                row['id'], row['state'],
                 row['msg'], row['points'],
-                row['tags'].split(',')
+                row['tags'].split(','),
+                fetch_history(db, row['id'])
             ))
 
     return result
@@ -128,6 +156,9 @@ def show_tags(db):
     for row in c.execute('SELECT tag, COUNT(*) as count FROM tag GROUP BY tag ORDER BY tag'):
         print('{}{}{} - {}'.format(Fore.CYAN, row['tag'], Fore.RESET, row['count']))
 
+def add_history(c, id, event):
+    c.execute('INSERT INTO history (entry, date, event) VALUES (?, CURRENT_TIMESTAMP, ?)', (id, event))
+
 def add_entry(db, tags, msg, points, edit):
     if edit:
         content = from_editor(msg)
@@ -135,14 +166,24 @@ def add_entry(db, tags, msg, points, edit):
             msg = ''.join(content)
 
     c = db.cursor()
-    c.execute('INSERT INTO entry VALUES (CURRENT_TIMESTAMP, NULL, ?, ?, ?)', (msg, points, 'open'))
+    c.execute("INSERT INTO entry (msg, points, state) VALUES (?, ?, 'open')", (msg, points))
+
     id = c.lastrowid
+    add_history(c, id, 'create')
+
     for tag in tags:
         c.execute('INSERT INTO tag VALUES (?, ?)', (tag, id))
 
     db.commit()
 
     print('Added {}{:0>4}{}: {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.WHITE, summary(msg), Fore.RESET))
+
+def change_state(db, id, state):
+    c = db.cursor()
+    c.execute('UPDATE entry SET state = ? where rowid = ?', (state, id))
+    add_history(c, id, state)
+    db.commit()
+    return c.rowcount > 0
 
 def edit_entry(db, id):
     entries = fetch_entries(db, (), id)
@@ -164,11 +205,7 @@ def edit_entry(db, id):
     print('Modified {}{:0>4}{}: {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.WHITE, summary(msg), Fore.RESET))
 
 def end_entry(db, id):
-    c = db.cursor()
-    c.execute('UPDATE entry SET state = ?, done = CURRENT_TIMESTAMP WHERE rowid = ?', ('done', id))
-    db.commit()
-
-    if c.rowcount > 0:
+    if change_state(db, id, 'done'):
         print('Ended {}{:0>4}{}'.format(Fore.YELLOW, id, Style.RESET_ALL))
     else:
         print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))

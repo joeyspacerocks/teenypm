@@ -58,12 +58,12 @@ def init_db():
     return db
 
 def summary(msg):
-    parts = msg.split('\n')
+    parts = list(filter(lambda line: line != '', msg.split('\n')))
 
     if len(parts) > 1:
         return '{} ...'.format(parts[0])
     else:
-        return msg
+        return parts[0]
 
 def fetch_history(db, entry):
     c = db.cursor()

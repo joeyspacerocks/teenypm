@@ -121,10 +121,6 @@ def show_entries(db, tags, all):
     features = fetch_features(db)
 
     maxtag = 0
-    for e in entries:
-        t = ','.join(e.tags)
-        if len(t) > maxtag:
-            maxtag = len(t)
 
     buckets = {}
 
@@ -144,6 +140,10 @@ def show_entries(db, tags, all):
                 bt = t
                 break
 
+        t = ','.join(e.tags)
+        if len(t) > maxtag:
+            maxtag = len(t)
+
         if bt in buckets:
             buckets[bt].append(e)
         else:
@@ -152,7 +152,6 @@ def show_entries(db, tags, all):
     for b in buckets:
         print("\n{}{} ({}):{}".format(Style.BRIGHT + Fore.WHITE, b, len(buckets[b]), Style.RESET_ALL))
         for e in buckets[b]:
-            display_tags = ','.join(sorted(e.tags))
             dates = e.created.strftime('%Y-%m-%d %H:%M')
             state_style = ''
 
@@ -162,8 +161,13 @@ def show_entries(db, tags, all):
             elif e.state == 'doing':
                 state_style = Style.BRIGHT + Back.BLUE
 
+            tags = [Fore.CYAN + t + Fore.RESET if t != 'bug' else Fore.RED + 'bug' + Fore.RESET for t in sorted(e.tags)]
+            display_tags = ','.join(tags)
+
+            display_tags += ' ' * (maxtag - len(','.join(e.tags)))
+
             msg = summary(e.msg)
-            print(('  +- {}{}{:0>4}{}  {}{:' + str(maxtag) + '}{}  {}{}{} {}({}){} {}{}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.NORMAL, Fore.CYAN, e.points, Style.RESET_ALL))
+            print(('  +- {}{}{:0>4}{}  {:12}  {}{}{} {}({}){} {}{}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, display_tags, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.NORMAL, Fore.CYAN, e.points, Style.RESET_ALL))
 
     print('\n{}{}{} open / {}{}{} total'.format(Fore.WHITE, open, Fore.RESET, Fore.WHITE, total, Fore.RESET))
 

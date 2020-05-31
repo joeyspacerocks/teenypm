@@ -269,8 +269,15 @@ def backlog_entry(db, id):
 def end_entry(db, id):
     if change_state(db, id, 'done'):
         print('Ended {}{:0>4}{}'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        return True
     else:
         print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        return False
+
+def end_entry_and_commit(db, id):
+    if end_entry(db, id):
+        e = fetch_entries(db, (), id)[0]
+        os.system('git commit -a -m "{}"'.format(e.msg))
 
 def tag_entry(db, tag, id):
     c = db.cursor()
@@ -509,6 +516,12 @@ def main():
         else:
             end_entry(db, argv[0])
 
+    elif cmd == 'end-git':
+        if len(argv) < 1:
+            print("Usage: {0} end <id>".format(script))
+        else:
+            end_entry_and_commit(db, argv[0])
+        
     elif cmd == 'rm':
         if len(argv) < 1:
             print("Usage: {0} rm <id>".format(script))

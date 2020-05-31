@@ -45,6 +45,7 @@ def init_db():
     c.execute('CREATE TABLE IF NOT EXISTS entry (msg TEXT, points INT, state TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS tag (tag TEXT, entry INT)')
     c.execute('CREATE TABLE IF NOT EXISTS history (entry INT, event TEXT, date INT)')
+    c.execute('CREATE TABLE IF NOT EXISTS feature (tag TEXT)')
 
     # migrate pre-history entries - if no history present
     c.execute("UPDATE entry SET state = 'backlog' WHERE state = 'open'")
@@ -73,6 +74,13 @@ def fetch_history(db, entry):
         ))
 
     return history
+
+def fetch_features(db):
+    c = db.cursor()
+    features = []
+    for row in c.execute('SELECT tag FROM feature'):
+        features.append(row['tag'])
+    return features
 
 def fetch_entries(db, tags, id):
     c = db.cursor()
@@ -110,12 +118,15 @@ def show_entries(db, tags, all):
     open = 0
 
     entries = fetch_entries(db, tags, None)
+    features = fetch_features(db)
 
     maxtag = 0
     for e in entries:
         t = ','.join(e.tags)
         if len(t) > maxtag:
             maxtag = len(t)
+
+    buckets = {}
 
     for e in entries:
         total += 1
@@ -126,20 +137,35 @@ def show_entries(db, tags, all):
         if e.open:
             open += 1
 
-        display_tags = ','.join(sorted(e.tags))
-        dates = e.created.strftime('%Y-%m-%d %H:%M')
-        state_style = ''
+        bt = 'misc'
+        for t in list(e.tags):
+            if t in features:
+                e.tags.remove(t)
+                bt = t
+                break
 
-        if all and not e.open:
-            state_style = Style.DIM
-            dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
-        elif e.state == 'doing':
-            state_style = Style.BRIGHT + Back.BLUE
+        if bt in buckets:
+            buckets[bt].append(e)
+        else:
+            buckets[bt] = [e]
 
-        msg = summary(e.msg)
-        print(('{}{}{:0>4}{}  {}{:' + str(maxtag) + '}{}  {}{}{} {}({}){} {}{}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.NORMAL, Fore.CYAN, e.points, Style.RESET_ALL))
+    for b in buckets:
+        print("\n{}{} ({}):{}".format(Style.BRIGHT + Fore.WHITE, b, len(buckets[b]), Style.RESET_ALL))
+        for e in buckets[b]:
+            display_tags = ','.join(sorted(e.tags))
+            dates = e.created.strftime('%Y-%m-%d %H:%M')
+            state_style = ''
 
-    print('{}{}{} open / {}{}{} total'.format(Fore.WHITE, open, Fore.RESET, Fore.WHITE, total, Fore.RESET))
+            if all and not e.open:
+                state_style = Style.DIM
+                dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
+            elif e.state == 'doing':
+                state_style = Style.BRIGHT + Back.BLUE
+
+            msg = summary(e.msg)
+            print(('  +- {}{}{:0>4}{}  {}{:' + str(maxtag) + '}{}  {}{}{} {}({}){} {}{}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.NORMAL, Fore.CYAN, e.points, Style.RESET_ALL))
+
+    print('\n{}{}{} open / {}{}{} total'.format(Fore.WHITE, open, Fore.RESET, Fore.WHITE, total, Fore.RESET))
 
 def show_full_entry(db, id):
     entries = fetch_entries(db, (), id)
@@ -207,6 +233,22 @@ def edit_entry(db, id):
     db.commit()
 
     print('Modified {}{:0>4}{}: {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.WHITE, summary(msg), Fore.RESET))
+
+def feature_tag(db, tag):
+    c = db.cursor()
+    count = c.execute('SELECT count(*) AS count FROM feature where tag = ?', (tag,)).fetchone()['count']
+    if count == 0:
+        c.execute('INSERT INTO feature VALUES (?)', (tag,))
+    db.commit()
+
+    print('Tag {}{}{} is now a feature'.format(Fore.CYAN, tag, Style.RESET_ALL))
+
+def unfeature_tag(db, tag):
+    c = db.cursor()
+    c.execute('DELETE FROM feature WHERE tag = ?', (tag,))
+    db.commit()
+
+    print('Tag {}{}{} is no longer a feature'.format(Fore.CYAN, tag, Style.RESET_ALL))
 
 def start_entry(db, id):
     if change_state(db, id, 'doing'):
@@ -474,6 +516,18 @@ def main():
             print("Usage: {0} tag <tag> <id>".format(script))
         else:
             tag_entry(db, argv[0], argv[1])
+
+    elif cmd == 'feature':
+        if len(argv) < 1:
+            print("Usage: {0} feature <tag>".format(script))
+        else:
+            feature_tag(db, argv[0])
+
+    elif cmd == 'unfeature':
+        if len(argv) < 1:
+            print("Usage: {0} unfeature <tag>".format(script))
+        else:
+            unfeature_tag(db, argv[0])
 
     elif cmd == 'untag':
         if len(argv) < 2:

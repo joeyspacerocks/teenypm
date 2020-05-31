@@ -1,6 +1,8 @@
 # teenypm
 A teeny, tiny CLI project manager.
 
+Suitable for solo development projects; stores data in a local SQLite file.
+
 ## Install
 
 `pip install teenypm`
@@ -21,10 +23,14 @@ When run `pm` will create a small sqlite file in your current working directory 
 * `pm addx <tags> <title> [points]` - same as `pm add` but opens editor for multiline text
 * `pm edit <id>` - open an editor to edit issue text
 * `pm rm <id>` - remove an issue
+* `pm start <id>` - mark issue as in-progress
+* `pm backlog <id>` - places issue back in the backlog
 * `pm end <id>` - mark issue as completed
 * `pm tag <tag> <id>` - add a tag to an issue
 * `pm untag <tag> <id>` - remove a tag from an issue
 * `pm tag <tag> <id>` - add a tag to an issue
+* `pm feature <tag>` - flags a tag as a feature (used to group issues in list display)
+* `pm unfeature <tag>` - unflags a tag as a feature
 * `pm plan [tag]` - open an editor for entering multiple issues, optionally tagged with `<tag>`
 
 *Experimental*

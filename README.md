@@ -26,6 +26,7 @@ When run `pm` will create a small sqlite file in your current working directory 
 * `pm start <id>` - mark issue as in-progress
 * `pm backlog <id>` - places issue back in the backlog
 * `pm end <id>` - mark issue as completed
+* `pm commit <id>` - mark issue as completed and commit changes to git using issue text for message
 * `pm tag <tag> <id>` - add a tag to an issue
 * `pm untag <tag> <id>` - remove a tag from an issue
 * `pm tag <tag> <id>` - add a tag to an issue

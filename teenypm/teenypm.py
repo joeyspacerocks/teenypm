@@ -516,9 +516,9 @@ def main():
         else:
             end_entry(db, argv[0])
 
-    elif cmd == 'end-git':
+    elif cmd == 'commit':
         if len(argv) < 1:
-            print("Usage: {0} end <id>".format(script))
+            print("Usage: {0} commit <id>".format(script))
         else:
             end_entry_and_commit(db, argv[0])
         
@@ -528,11 +528,20 @@ def main():
         else:
             remove_entry(db, int(argv[0]))
 
+    elif cmd == 'tags':
+        show_tags(db)
+
     elif cmd == 'tag':
         if len(argv) < 2:
             print("Usage: {0} tag <tag> <id>".format(script))
         else:
             tag_entry(db, argv[0], argv[1])
+
+    elif cmd == 'untag':
+        if len(argv) < 2:
+            print("Usage: {0} untag <tag> <id>".format(script))
+        else:
+            untag_entry(db, argv[0], argv[1])
 
     elif cmd == 'feature':
         if len(argv) < 1:
@@ -545,15 +554,6 @@ def main():
             print("Usage: {0} unfeature <tag>".format(script))
         else:
             unfeature_tag(db, argv[0])
-
-    elif cmd == 'untag':
-        if len(argv) < 2:
-            print("Usage: {0} untag <tag> <id>".format(script))
-        else:
-            untag_entry(db, argv[0], argv[1])
-
-    elif cmd == 'tags':
-        show_tags(db)
 
     elif cmd == 'burn':
         if len(argv) > 0:

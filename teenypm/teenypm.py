@@ -12,7 +12,7 @@ import dateparser
 import humanize
 import argparse
 
-__version__ = '0.1.6'
+__version__ = '0.1.7'
 
 DEFAULT_EDITOR = 'vi'
 
@@ -118,16 +118,19 @@ def fetch_entries(db, tags, id):
     state_order = ['doing', 'backlog', 'done']
     return sorted(result, key=lambda e: (state_order.index(e.state), -e.id))
 
-def display_date(date):
-    # date.strftime('%Y-%m-%d %H:%M')
-    return humanize.naturaldelta(datetime.datetime.now() - date) + ' ago'
+def display_date(date, full_date):
+    if full_date:
+        return date.strftime('%Y-%m-%d %H:%M')
+    else:
+        return humanize.naturaldelta(datetime.datetime.now() - date) + ' ago'
 
 def show_entries(db, args):
     tags = args.tags or []
     all = args.all
-    show_entries_internal(db, tags, all)
+    dates = args.dates
+    show_entries_internal(db, tags, all, dates)
 
-def show_entries_internal(db, tags, all):
+def show_entries_internal(db, tags, all, full_dates):
     if len(tags) == 1 and tags[0].isdigit():
         show_full_entry(db, tags[0])
         return
@@ -180,12 +183,12 @@ def show_entries_internal(db, tags, all):
         print("{}{} ({}):{}".format(bstyle + Fore.WHITE, b, len(buckets[b]), Style.RESET_ALL))
 
         for e in buckets[b]:
-            dates = display_date(e.created)
+            dates = display_date(e.created, full_dates)
             state_style = ''
 
             if all and not e.open:
                 state_style = Style.DIM
-                dates += ' -> {}'.format(display_date(e.done))
+                dates += ' -> {}'.format(display_date(e.done, full_dates))
             elif e.state == 'doing':
                 state_style = Style.BRIGHT + Back.BLUE
 
@@ -513,6 +516,7 @@ def main():
     p_show = subparsers.add_parser('show', help='show issues')
     p_show.add_argument('tags', nargs="?", type=str, help='Filter by comma-seperated tags')
     p_show.add_argument('-a', '--all', help='Show all issues, even closed', action="store_true")
+    p_show.add_argument('-d', '--dates', help='Show full dates', action="store_true")
     p_show.set_defaults(func=show_entries)
 
     p_add = subparsers.add_parser('add', help='add an issue')
@@ -573,7 +577,7 @@ def main():
     args = parser.parse_args()
 
     if not hasattr(args, 'func'):
-        show_entries_internal(db, [], False)
+        show_entries_internal(db, [], False, False)
     else:
         args.func(db, args)
 

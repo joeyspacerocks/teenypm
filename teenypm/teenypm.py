@@ -472,7 +472,10 @@ def from_editor(start_text):
         return []
 
     with open(tmp_file) as f:
-        content = f.readlines()
+        content = list(f)
+
+    if len(content)>0:
+        content[-1] = content[-1].rstrip('\n')
 
     os.remove(tmp_file)
 

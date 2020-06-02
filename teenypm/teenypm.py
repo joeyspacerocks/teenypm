@@ -10,8 +10,9 @@ import math
 import re
 import dateparser
 import humanize
+import argparse
 
-__version__ = '0.1.5'
+__version__ = '0.1.6'
 
 DEFAULT_EDITOR = 'vi'
 
@@ -121,7 +122,16 @@ def display_date(date):
     # date.strftime('%Y-%m-%d %H:%M')
     return humanize.naturaldelta(datetime.datetime.now() - date) + ' ago'
 
-def show_entries(db, tags, all):
+def show_entries(db, args):
+    tags = args.tags or []
+    all = args.all
+    show_entries_internal(db, tags, all)
+
+def show_entries_internal(db, tags, all):
+    if len(tags) == 1 and tags[0].isdigit():
+        show_full_entry(db, tags[0])
+        return
+
     total = 0
     open = 0
 
@@ -201,7 +211,7 @@ def show_full_entry(db, id):
     print('----------------------------------------------')
     print(Fore.WHITE + e.msg + Fore.RESET)
 
-def show_tags(db):
+def show_tags(db, args):
     c = db.cursor()
     for row in c.execute('SELECT tag, COUNT(*) as count FROM tag GROUP BY tag ORDER BY tag'):
         print('{}{}{} - {}'.format(Fore.CYAN, row['tag'], Fore.RESET, row['count']))
@@ -209,7 +219,10 @@ def show_tags(db):
 def add_history(c, id, event):
     c.execute('INSERT INTO history (entry, date, event) VALUES (?, CURRENT_TIMESTAMP, ?)', (id, event))
 
-def add_entry(db, tags, msg, points, edit):
+def add_entry(db, args):
+    add_entry_internal(db, args.tags.split(','), args.desc, args.points, args.edit)
+
+def add_entry_internal(db, tags, msg, points, edit):
     if edit:
         content = from_editor(msg)
         if content != None:
@@ -235,7 +248,8 @@ def change_state(db, id, state):
     db.commit()
     return c.rowcount > 0
 
-def edit_entry(db, id):
+def edit_entry(db, args):
+    id = args.id
     entries = fetch_entries(db, (), id)
 
     if len(entries) < 1:
@@ -254,7 +268,12 @@ def edit_entry(db, id):
 
     print('Modified {}{:0>4}{}: {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.WHITE, summary(msg), Fore.RESET))
 
-def feature_tag(db, tag):
+def feature_tag(db, args):
+    if args.remove:
+        unfeature_tag(db, args)
+        return
+
+    tag = args.tag
     c = db.cursor()
     count = c.execute('SELECT count(*) AS count FROM feature where tag = ?', (tag,)).fetchone()['count']
     if count == 0:
@@ -263,26 +282,33 @@ def feature_tag(db, tag):
 
     print('Tag {}{}{} is now a feature'.format(Fore.CYAN, tag, Style.RESET_ALL))
 
-def unfeature_tag(db, tag):
+def unfeature_tag(db, args):
+    tag = args.tag
     c = db.cursor()
     c.execute('DELETE FROM feature WHERE tag = ?', (tag,))
     db.commit()
 
     print('Tag {}{}{} is no longer a feature'.format(Fore.CYAN, tag, Style.RESET_ALL))
 
-def start_entry(db, id):
+def start_entry(db, args):
+    id = args.id
+    # prep for specifying promised end time
+    # dateparser.parse('3 days ago', settings={'RELATIVE_BASE': now})
+
     if change_state(db, id, 'doing'):
         print('Started {}{:0>4}{}'.format(Fore.YELLOW, id, Style.RESET_ALL))
     else:
         print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
 
-def backlog_entry(db, id):
+def backlog_entry(db, args):
+    id = args.id
     if change_state(db, id, 'backlog'):
         print('Moved {}{:0>4}{} to backlog'.format(Fore.YELLOW, id, Style.RESET_ALL))
     else:
         print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
 
-def end_entry(db, id):
+def end_entry(db, args):
+    id = args.id
     if change_state(db, id, 'done'):
         print('Ended {}{:0>4}{}'.format(Fore.YELLOW, id, Style.RESET_ALL))
         return True
@@ -290,12 +316,18 @@ def end_entry(db, id):
         print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
         return False
 
-def end_entry_and_commit(db, id):
-    if end_entry(db, id):
-        e = fetch_entries(db, (), id)[0]
+def end_entry_and_commit(db, args):
+    if end_entry(db, args):
+        e = fetch_entries(db, (), args.id)[0]
         os.system('git commit -a -m "{}"'.format(e.msg))
 
-def tag_entry(db, tag, id):
+def tag_entry(db, args):
+    if args.remove:
+        untag_entry(db, args)
+        return
+
+    tag = args.tag
+    id = args.id
     c = db.cursor()
 
     count = c.execute('SELECT count(*) as count from tag where entry = ? and tag = ?', (id, tag)).fetchone()['count']
@@ -306,7 +338,9 @@ def tag_entry(db, tag, id):
     else:
         print('{}{:0>4}{} already tagged with {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.CYAN, tag, Style.RESET_ALL))
 
-def untag_entry(db, tag, id):
+def untag_entry(db, args):
+    tag = args.tag
+    id = args.id
     c = db.cursor()
 
     c.execute('DELETE FROM tag where tag = ? and entry = ?', (tag, id))
@@ -317,7 +351,8 @@ def untag_entry(db, tag, id):
     else:
         print('{}{:0>4}{} wasn\'t tagged with {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.CYAN, tag, Style.RESET_ALL))
 
-def remove_entry(db, id):
+def remove_entry(db, args):
+    id = args.id
     c = db.cursor()
 
     c.execute('DELETE FROM tag where entry = ?', (id,))
@@ -329,7 +364,9 @@ def remove_entry(db, id):
     else:
         print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
     
-def burndown(db, tags):
+def burndown(db, args):
+    tags = args.tags.split(',') if args.tags else []
+
     first_date = None
     created = {}
     done = {}
@@ -438,7 +475,8 @@ def from_editor(start_text):
 
     return content
 
-def make_a_plan(db, plan):
+def make_a_plan(db, args):
+    tag = args.tag
     content = from_editor(None)
 
     for line in content:
@@ -456,142 +494,88 @@ def make_a_plan(db, plan):
                 tags = []
 
             tags.append('task')
-            if plan:
-                tags.append(plan)
+            if tag:
+                tags.append(tag)
 
             if task['points']:
                 points = task['points']
             else:
                 points = 1
 
-            add_entry(db, tags, task['msg'], points, False)
+            add_entry_internal(db, tags, task['msg'], points, False)
 
 def main():
     db = init_db()
 
-    script = argv.pop(0)
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(title='subcommands', metavar="<command>", help='sub-command help')
 
-    if len(argv) == 0:
-        cmd = 'show'
-    elif argv[0] == 'all':
-        cmd = 'show'
+    p_show = subparsers.add_parser('show', help='show issues')
+    p_show.add_argument('tags', nargs="?", type=str, help='Filter by comma-seperated tags')
+    p_show.add_argument('-a', '--all', help='Show all issues, even closed', action="store_true")
+    p_show.set_defaults(func=show_entries)
+
+    p_add = subparsers.add_parser('add', help='add an issue')
+    p_add.add_argument('tags', type=str, help='comma-seperated tags')
+    p_add.add_argument('desc', type=str, help='issue description')
+    p_add.add_argument('points', type=int, nargs='?', default=1, help='effort points (defaults to 1)')
+    p_add.add_argument('-e', '--edit', help='Effort points (defaults to 1)', action="store_true")
+    p_add.set_defaults(func=add_entry)
+
+    p_edit = subparsers.add_parser('edit', help='edit an issue description')
+    p_edit.add_argument('id', type=str, help='issue id')
+    p_edit.set_defaults(func=edit_entry)
+
+    p_remove = subparsers.add_parser('rm', help='remove an issue')
+    p_remove.add_argument('id', type=str, help='issue id')
+    p_remove.set_defaults(func=remove_entry)
+
+    p_plan = subparsers.add_parser('plan', help='make a plan')
+    p_plan.add_argument('tag', type=str, nargs='?', help='tag to add to all issues')
+    p_plan.set_defaults(func=make_a_plan)
+
+    p_start = subparsers.add_parser('start', help='mark an issue as started')
+    p_start.add_argument('id', type=str, help='issue id')
+    p_start.set_defaults(func=start_entry)
+
+    p_backlog = subparsers.add_parser('backlog', help='return an issue to the backlog')
+    p_backlog.add_argument('id', type=str, help='issue id')
+    p_backlog.set_defaults(func=backlog_entry)
+
+    p_end = subparsers.add_parser('end', help='mark an issue as ended')
+    p_end.add_argument('id', type=str, help='issue id')
+    p_end.set_defaults(func=end_entry)
+
+    # tag management
+
+    p_tags = subparsers.add_parser('tags', help='list tags')
+    p_tags.set_defaults(func=show_tags)
+
+    p_tag = subparsers.add_parser('tag', help='tag an issue')
+    p_tag.add_argument('tag', type=str, help='tag')
+    p_tag.add_argument('id', type=str, help='issue id')
+    p_tag.add_argument('-r', '--remove', help='remove tag from issue', action='store_true')
+    p_tag.set_defaults(func=tag_entry)
+
+    p_feature = subparsers.add_parser('feature', help='flag a tag as a feature')
+    p_feature.add_argument('tag', type=str, help='tag to feature')
+    p_feature.add_argument('-r', '--remove', help='remove feature flag from tag', action='store_true')
+    p_feature.set_defaults(func=feature_tag)
+
+    p_commit = subparsers.add_parser('commit', help='mark an issue as ended and git commit changes')
+    p_commit.add_argument('id', type=str, help='issue id')
+    p_commit.set_defaults(func=end_entry_and_commit)
+
+    p_burn = subparsers.add_parser('burn', help='display a burndown chart')
+    p_burn.add_argument('tags', type=str, nargs='?', help='comma-seperated tags')
+    p_burn.set_defaults(func=burndown)
+
+    args = parser.parse_args()
+
+    if not hasattr(args, 'func'):
+        show_entries_internal(db, [], False)
     else:
-        cmd = argv.pop(0)
-
-    if cmd == 'show':
-        tags = []
-
-        if len(argv) == 0:
-            show_all = False
-        else:
-            if argv[0] == 'all':
-                argv.pop(0)
-                show_all = True
-            else:
-                show_all = False
-
-            if len(argv) > 0:
-                tags = argv[0].split(',')
-
-        if len(tags) == 1 and tags[0].isdigit():
-            show_full_entry(db, tags[0])
-        else:
-            show_entries(db, tags, show_all)
-    
-    elif cmd == 'add' or cmd == 'addx':
-        if len(argv) < 2:
-            print("Usage: {0} add <tags> <msg> [points]".format(script))
-        else:
-            if len(argv) > 2:
-                points=int(argv[2])
-            else:
-                points=1
-            add_entry(db, argv[0].split(','), argv[1], points, cmd == 'addx')
-
-    elif cmd == 'edit':
-        if len(argv) < 1:
-            print("Usage: {0} edit <id>".format(script))
-        else:
-            edit_entry(db, argv[0])
-
-    elif cmd == 'start':
-        if len(argv) < 1:
-            print("Usage: {0} start <id>".format(script))
-        else:
-            # prep for specifying promised end time
-            # dateparser.parse('3 days ago', settings={'RELATIVE_BASE': now})
-
-            start_entry(db, argv[0])
-
-    elif cmd == 'backlog':
-        if len(argv) < 1:
-            print("Usage: {0} backlog <id>".format(script))
-        else:
-            backlog_entry(db, argv[0])
-
-    elif cmd == 'end':
-        if len(argv) < 1:
-            print("Usage: {0} end <id>".format(script))
-        else:
-            end_entry(db, argv[0])
-
-    elif cmd == 'commit':
-        if len(argv) < 1:
-            print("Usage: {0} commit <id>".format(script))
-        else:
-            end_entry_and_commit(db, argv[0])
-        
-    elif cmd == 'rm':
-        if len(argv) < 1:
-            print("Usage: {0} rm <id>".format(script))
-        else:
-            remove_entry(db, int(argv[0]))
-
-    elif cmd == 'tags':
-        show_tags(db)
-
-    elif cmd == 'tag':
-        if len(argv) < 2:
-            print("Usage: {0} tag <tag> <id>".format(script))
-        else:
-            tag_entry(db, argv[0], argv[1])
-
-    elif cmd == 'untag':
-        if len(argv) < 2:
-            print("Usage: {0} untag <tag> <id>".format(script))
-        else:
-            untag_entry(db, argv[0], argv[1])
-
-    elif cmd == 'feature':
-        if len(argv) < 1:
-            print("Usage: {0} feature <tag>".format(script))
-        else:
-            feature_tag(db, argv[0])
-
-    elif cmd == 'unfeature':
-        if len(argv) < 1:
-            print("Usage: {0} unfeature <tag>".format(script))
-        else:
-            unfeature_tag(db, argv[0])
-
-    elif cmd == 'burn':
-        if len(argv) > 0:
-            tags = argv[0].split(',')
-        else:
-            tags = []
-
-        burndown(db, tags)
-
-    elif cmd == 'plan':
-        if len(argv) > 0:
-            plan = argv[0]
-        else:
-            plan = None
-
-        make_a_plan(db, plan)
-
-    else:
-        print('{}Error: {} is not a recognized command{}'.format(Fore.RED, cmd, Style.RESET_ALL))
+        args.func(db, args)
 
     db.close()
 

@@ -38,6 +38,11 @@ When run `pm` will create a small sqlite file in your current working directory 
 
 * `pm burn` - show a burndown chart with estimated finish time
 
+*Planned*
+
+* `pm start random` - start a random backlog issue
+* `pm start <id> <timeframe>` - start an issue and promise to finish it within a timeframe
+
 ## Configuration
 
 The editor used for the `addx`, `edit` and `plan` commands defaults to `vim`.

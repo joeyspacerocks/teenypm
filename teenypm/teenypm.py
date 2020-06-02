@@ -8,6 +8,10 @@ import datetime
 from pprint import pprint
 import math
 import re
+import dateparser
+import humanize
+
+__version__ = '0.1.5'
 
 DEFAULT_EDITOR = 'vi'
 
@@ -113,6 +117,10 @@ def fetch_entries(db, tags, id):
     state_order = ['doing', 'backlog', 'done']
     return sorted(result, key=lambda e: (state_order.index(e.state), -e.id))
 
+def display_date(date):
+    # date.strftime('%Y-%m-%d %H:%M')
+    return humanize.naturaldelta(datetime.datetime.now() - date) + ' ago'
+
 def show_entries(db, tags, all):
     total = 0
     open = 0
@@ -149,15 +157,25 @@ def show_entries(db, tags, all):
         else:
             buckets[bt] = [e]
 
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    
+    print('{}{}{}/{}{}{} issues {}| {} | teenypm v{}{}'.format(Fore.WHITE + Style.BRIGHT, open, Fore.RESET + Style.NORMAL, Fore.WHITE, total, Fore.RESET, Style.DIM, now, __version__, Style.RESET_ALL))
+
     for b in buckets:
-        print("\n{}{} ({}):{}".format(Style.BRIGHT + Fore.WHITE, b, len(buckets[b]), Style.RESET_ALL))
+        bstyle = Style.DIM
         for e in buckets[b]:
-            dates = e.created.strftime('%Y-%m-%d %H:%M')
+            if e.open:
+                bstyle = Style.BRIGHT
+
+        print("{}{} ({}):{}".format(bstyle + Fore.WHITE, b, len(buckets[b]), Style.RESET_ALL))
+
+        for e in buckets[b]:
+            dates = display_date(e.created)
             state_style = ''
 
             if all and not e.open:
                 state_style = Style.DIM
-                dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
+                dates += ' -> {}'.format(display_date(e.done))
             elif e.state == 'doing':
                 state_style = Style.BRIGHT + Back.BLUE
 
@@ -167,9 +185,7 @@ def show_entries(db, tags, all):
             display_tags += ' ' * (maxtag - len(','.join(e.tags)))
 
             msg = summary(e.msg)
-            print(('  +- {}{}{:0>4}{}  {:12}  {}{}{} {}({}){} {}{}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, display_tags, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.NORMAL, Fore.CYAN, e.points, Style.RESET_ALL))
-
-    print('\n{}{}{} open / {}{}{} total'.format(Fore.WHITE, open, Fore.RESET, Fore.WHITE, total, Fore.RESET))
+            print(('  {}+- {}{:0>4}{}  {:12}  {}{}{} {}({}){} {}{}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, display_tags, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.NORMAL, Fore.CYAN, e.points, Style.RESET_ALL))
 
 def show_full_entry(db, id):
     entries = fetch_entries(db, (), id)
@@ -502,6 +518,9 @@ def main():
         if len(argv) < 1:
             print("Usage: {0} start <id>".format(script))
         else:
+            # prep for specifying promised end time
+            # dateparser.parse('3 days ago', settings={'RELATIVE_BASE': now})
+
             start_entry(db, argv[0])
 
     elif cmd == 'backlog':

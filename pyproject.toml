@@ -9,7 +9,7 @@ author-email = "joe.trewin@gmail.com"
 home-page = "https://github.com/joeyspacerocks/pm"
 classifiers = ["License :: OSI Approved :: Apache Software License"]
 requires=[
-    "colorama"
+    "colorama", "dateparser", "humanize"
 ]
 
 [tool.flit.scripts]

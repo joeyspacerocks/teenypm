@@ -14,7 +14,7 @@ import argparse
 
 __version__ = '0.1.7'
 
-DEFAULT_EDITOR = 'vi'
+DEFAULT_EDITOR = 'vi +<line>'
 
 class Entry:
     def __init__(self, id, state, msg, points, tags, history):
@@ -227,7 +227,7 @@ def add_entry(db, args):
 
 def add_entry_internal(db, tags, msg, points, edit):
     if edit:
-        content = from_editor(msg)
+        content = from_editor(msg, 0)
         if content != None:
             msg = ''.join(content)
 
@@ -261,7 +261,7 @@ def edit_entry(db, args):
 
     e = entries[0]
 
-    content = from_editor(e.msg)
+    content = from_editor(e.msg, 0)
     if content != None:
         msg = ''.join(content)
 
@@ -458,7 +458,7 @@ def burndown(db, args):
 
     print('Finish in {}{}{} days on {}{}{} {}(velocity {:.1f}){}'.format(Fore.WHITE + Style.BRIGHT, predicted, Style.RESET_ALL, Fore.WHITE + Style.BRIGHT, end_date.strftime('%A %d %b %Y'), Style.RESET_ALL, Style.DIM, velocity, Style.RESET_ALL))
 
-def from_editor(start_text):
+def from_editor(start_text, start_line):
     tmp_file = '_pm_.txt'
 
     if start_text:
@@ -466,13 +466,20 @@ def from_editor(start_text):
         f.write(start_text)
         f.close()
 
-    os.system(os.getenv('EDITOR', DEFAULT_EDITOR) + ' ' + tmp_file)
+    ed_cmd = os.getenv('EDITOR', DEFAULT_EDITOR).replace('<line>', str(start_line))
+
+    if '<file>' in ed_cmd:
+        ed_cmd = ed_cmd.replace('<file>', tmp_file)
+    else:
+        ed_cmd += ' ' + tmp_file
+
+    os.system(ed_cmd)
 
     if not os.path.isfile(tmp_file):
         return []
 
     with open(tmp_file) as f:
-        content = list(f)
+        content = [line for line in list(f) if not line.startswith('#')]
 
     if len(content)>0:
         content[-1] = content[-1].rstrip('\n')
@@ -483,12 +490,11 @@ def from_editor(start_text):
 
 def make_a_plan(db, args):
     tag = args.tag
-    content = from_editor(None)
+    help_text = '# One line for each issue, with optional tags and points.\n#  <desc> [[<tag>,...]] [points]\n# For example:\n#  Sort out the thing there [bug] 2\n\n'
+    content = from_editor(help_text, help_text.count('\n') + 1)
 
     for line in content:
         line = line.strip()
-
-        if line.startswith('#'): continue
 
         m = re.match(r"^(?P<msg>.+?)\s*(\[(?P<tags>[^\]]+)\])?\s*(?P<points>\d+)?$", line)
         if m:

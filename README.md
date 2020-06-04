@@ -49,8 +49,10 @@ The editor used for the `addx`, `edit` and `plan` commands defaults to `vim`.
 
 You can specify an alternative by setting the `EDITOR` environment variable.
 
+Additionally, if the command string contains the optional string `<file>` it will be replaced with the temporary filename, and the string `<line>` will replaced with the line number with which to set the cursor.
+
 For example, to use VS Code:
 
-`export EDITOR="code --wait --new-window"`
+`export EDITOR="code --wait --new-window -g<file>:<line>"`
 
 (Assumes that the `code` command has been installed from VS Code - see https://code.visualstudio.com/docs/setup/mac#_launching-from-the-command-line.)

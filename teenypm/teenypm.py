@@ -17,7 +17,7 @@ __version__ = '0.1.7'
 DEFAULT_EDITOR = 'vi +<line>'
 
 class Entry:
-    def __init__(self, id, state, msg, points, tags, history):
+    def __init__(self, id, state, msg, points, tags, history, deadline):
         self.id = id
         self.state = state
         self.open = state != 'done'
@@ -25,6 +25,7 @@ class Entry:
         self.points = points
         self.tags = tags
         self.history = history
+        self.deadline = deadline
 
         for e in history:
             if e.event == 'create':
@@ -51,6 +52,7 @@ def init_db():
     c.execute('CREATE TABLE IF NOT EXISTS tag (tag TEXT, entry INT)')
     c.execute('CREATE TABLE IF NOT EXISTS history (entry INT, event TEXT, date INT)')
     c.execute('CREATE TABLE IF NOT EXISTS feature (tag TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS deadline (entry INT, date INT)')
 
     # migrate pre-history entries - if no history present
     c.execute("UPDATE entry SET state = 'backlog' WHERE state = 'open'")
@@ -90,6 +92,10 @@ def fetch_features(db):
 def fetch_entries(db, tags, id):
     c = db.cursor()
     result = []
+    deadlines = {}
+
+    for row in c.execute('SELECT entry, date as "date [timestamp]" FROM deadline'):
+        deadlines[row['entry']] = row['date']
 
     sql = 'SELECT e.rowid AS id, state, msg, points, GROUP_CONCAT(tag) AS tags FROM tag t INNER JOIN entry e ON e.rowid = t.entry'
     if id:
@@ -98,10 +104,12 @@ def fetch_entries(db, tags, id):
         c.execute(sql + ' GROUP BY e.rowid')
 
     for row in c:
+        etags = row['tags'].split(',')
+
         match = False
         if len(tags) > 0:
-            for t in tags:
-                if t in row['tags']:
+            for t in tags.split(','):
+                if t in etags:
                     match = True
                     break
         else:
@@ -111,8 +119,9 @@ def fetch_entries(db, tags, id):
             result.append(Entry(
                 row['id'], row['state'],
                 row['msg'], row['points'],
-                row['tags'].split(','),
-                fetch_history(db, row['id'])
+                etags,
+                fetch_history(db, row['id']),
+                deadlines.get(row['id'], None)
             ))
 
     state_order = ['doing', 'backlog', 'done']
@@ -122,7 +131,8 @@ def display_date(date, full_date):
     if full_date:
         return date.strftime('%Y-%m-%d %H:%M')
     else:
-        return humanize.naturaldelta(datetime.datetime.now() - date) + ' ago'
+        now = datetime.datetime.now()
+        return humanize.naturaltime(now - date)
 
 def show_entries(db, args):
     tags = args.tags or []
@@ -183,14 +193,22 @@ def show_entries_internal(db, tags, all, full_dates):
         print("{}{} ({}):{}".format(bstyle + Fore.WHITE, b, len(buckets[b]), Style.RESET_ALL))
 
         for e in buckets[b]:
-            dates = display_date(e.created, full_dates)
+            dates = 'added {}'.format(display_date(e.created, full_dates))
             state_style = ''
 
             if all and not e.open:
                 state_style = Style.DIM
-                dates += ' -> {}'.format(display_date(e.done, full_dates))
+                dates = 'finished {}'.format(display_date(e.done, full_dates))
             elif e.state == 'doing':
-                state_style = Style.BRIGHT + Back.BLUE
+                if e.deadline:
+                    state_style = Style.BRIGHT + Back.RED
+
+                    if datetime.datetime.now() > e.deadline:
+                        dates = 'due {} - LATE!'.format(display_date(e.deadline, full_dates))
+                    else:
+                        dates = 'due {}'.format(display_date(e.deadline, full_dates))
+                else:
+                    state_style = Style.BRIGHT + Back.BLUE
 
             tags = [Fore.CYAN + t + Fore.RESET if t != 'bug' else Fore.RED + 'bug' + Fore.RESET for t in sorted(e.tags)]
             display_tags = ','.join(tags)
@@ -198,7 +216,12 @@ def show_entries_internal(db, tags, all, full_dates):
             display_tags += ' ' * (maxtag - len(','.join(e.tags)))
 
             msg = summary(e.msg)
-            print(('  {}+- {}{:0>4}{}  {:12}  {}{}{} {}({}){} {}{}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, display_tags, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.NORMAL, Fore.CYAN, e.points, Style.RESET_ALL))
+            if e.points > 1:
+                points = '{}{}{}'.format(Fore.CYAN, e.points, Fore.RESET)
+            else:
+                points = ''
+
+            print(('  {}+- {}{:0>4}{}  {:12}  {}{}{} {}({}){} {}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, display_tags, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.NORMAL, points, Style.RESET_ALL))
 
 def show_full_entry(db, id):
     entries = fetch_entries(db, (), id)
@@ -293,19 +316,42 @@ def unfeature_tag(db, args):
 
     print('Tag {}{}{} is no longer a feature'.format(Fore.CYAN, tag, Style.RESET_ALL))
 
+def set_deadline(db, id, date):
+    c = db.cursor()
+    c.execute('DELETE FROM deadline WHERE entry = ?', (id, ))
+    c.execute('INSERT INTO deadline (entry, date) VALUES (?, ?)', (id, date))
+    db.commit()
+
+def clear_deadline(db, id):
+    c = db.cursor()
+    c.execute('DELETE FROM deadline WHERE entry = ?', (id, ))
+    db.commit()
+
 def start_entry(db, args):
     id = args.id
-    # prep for specifying promised end time
-    # dateparser.parse('3 days ago', settings={'RELATIVE_BASE': now})
+    tf = None
+
+    if args.timeframe:
+        now = datetime.datetime.now()
+        tf_str = args.timeframe
+        tf = dateparser.parse(tf_str, settings={'RELATIVE_BASE': now}).replace(hour=23, minute=59, second=0)
+
+        if tf < now:
+            print(Fore.RED + "ERROR: time flows inexorably forwards.\nPromising to complete an issue in the past will bring you nothing but despair." + Fore.RESET)
+            quit()
 
     if change_state(db, id, 'doing'):
         print('Started {}{:0>4}{}'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        if tf:
+            set_deadline(db, id, tf)
+            print('Your deadline is midnight {}{}{}'.format(Fore.RED, tf.strftime('%Y-%m-%d'), Fore.RESET))
     else:
         print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
 
 def backlog_entry(db, args):
     id = args.id
     if change_state(db, id, 'backlog'):
+        clear_deadline(db, id)
         print('Moved {}{:0>4}{} to backlog'.format(Fore.YELLOW, id, Style.RESET_ALL))
     else:
         print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
@@ -313,6 +359,7 @@ def backlog_entry(db, args):
 def end_entry(db, args):
     id = args.id
     if change_state(db, id, 'done'):
+        clear_deadline(db, id)
         print('Ended {}{:0>4}{}'.format(Fore.YELLOW, id, Style.RESET_ALL))
         return True
     else:
@@ -549,6 +596,7 @@ def main():
 
     p_start = subparsers.add_parser('start', help='mark an issue as started')
     p_start.add_argument('id', type=str, help='issue id')
+    p_start.add_argument('timeframe', type=str, nargs='?', help='promised timeframe')
     p_start.set_defaults(func=start_entry)
 
     p_backlog = subparsers.add_parser('backlog', help='return an issue to the backlog')

@@ -4,7 +4,7 @@ import os
 import os.path
 import sqlite3
 from colorama import Fore, Back, Style
-import datetime
+from datetime import datetime, timedelta
 from pprint import pprint
 import math
 import re
@@ -68,7 +68,7 @@ def summary(msg):
     parts = list(filter(lambda line: line != '', msg.split('\n')))
 
     if len(parts) > 1:
-        return '{} ...'.format(parts[0])
+        return '{} {}'.format(parts[0], bluebg('[+]'))
     else:
         return parts[0]
 
@@ -131,7 +131,7 @@ def display_date(date, full_date):
     if full_date:
         return date.strftime('%Y-%m-%d %H:%M')
     else:
-        now = datetime.datetime.now()
+        now = datetime.now()
         return humanize.naturaltime(now - date)
 
 def show_entries(db, args):
@@ -140,9 +140,42 @@ def show_entries(db, args):
     dates = args.dates
     show_entries_internal(db, tags, all, dates)
 
+def red(t):
+    return '{}{}{}'.format(Fore.RED, t, Fore.RESET)
+
+def white(t):
+    return '{}{}{}'.format(Fore.WHITE, t, Fore.RESET)
+
+def cyan(t):
+    return '{}{}{}'.format(Fore.CYAN, t, Fore.RESET)
+
+def yellow(t):
+    return '{}{}{}'.format(Fore.YELLOW, t, Fore.RESET)
+
+def bright(t):
+    return '{}{}{}'.format(Style.BRIGHT, t, Style.NORMAL)
+
+def dim(t):
+    return '{}{}{}'.format(Style.DIM, t, Style.NORMAL)
+
+def normal(t):
+    return '{}{}'.format(Style.NORMAL, t)
+
+def nobg(t):
+    return '{}{}'.format(Back.RESET, t)
+
+def redbg(t):
+    return '{}{}{}'.format(Back.RED, t, Back.RESET)
+
+def bluebg(t):
+    return '{}{}{}'.format(Back.BLUE, t, Back.RESET)
+
+def displayid(id):
+    return yellow(str(id).zfill(4))
+
 def show_entries_internal(db, tags, all, full_dates):
-    if len(tags) == 1 and tags[0].isdigit():
-        show_full_entry(db, tags[0])
+    if tags and tags.isdigit():
+        show_full_entry(db, tags)
         return
 
     total = 0
@@ -180,67 +213,78 @@ def show_entries_internal(db, tags, all, full_dates):
         else:
             buckets[bt] = [e]
 
-    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-    
-    print('{}{}{}/{}{}{} issues {}| {} | teenypm v{}{}'.format(Fore.WHITE + Style.BRIGHT, open, Fore.RESET + Style.NORMAL, Fore.WHITE, total, Fore.RESET, Style.DIM, now, __version__, Style.RESET_ALL))
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+    print('{}/{} issues {}'.format(white(bright(open)), white(total), dim('| {} | teenypm v{}'.format(now, __version__))))
 
     for b in buckets:
-        bstyle = Style.DIM
+        bstyle = dim
         for e in buckets[b]:
             if e.open:
-                bstyle = Style.BRIGHT
+                bstyle = bright
 
-        print("{}{} ({}):{}".format(bstyle + Fore.WHITE, b, len(buckets[b]), Style.RESET_ALL))
+        print(bstyle(white('{} ({})'.format(b, len(buckets[b])))))
 
         for e in buckets[b]:
-            dates = 'added {}'.format(display_date(e.created, full_dates))
-            state_style = ''
+            state_style = normal
+            background = nobg
 
             if all and not e.open:
-                state_style = Style.DIM
-                dates = 'finished {}'.format(display_date(e.done, full_dates))
+                state_style = dim
+                dates = ' - finished {}'.format(display_date(e.done, full_dates))
+
             elif e.state == 'doing':
+                now = datetime.now()
                 if e.deadline:
-                    state_style = Style.BRIGHT + Back.RED
-
-                    if datetime.datetime.now() > e.deadline:
-                        dates = 'due {} - LATE!'.format(display_date(e.deadline, full_dates))
+                    if now > e.deadline - timedelta(days=2):
+                        state_style = normal
+                        background = redbg
                     else:
-                        dates = 'due {}'.format(display_date(e.deadline, full_dates))
-                else:
-                    state_style = Style.BRIGHT + Back.BLUE
+                        background = bluebg
 
-            tags = [Fore.CYAN + t + Fore.RESET if t != 'bug' else Fore.RED + 'bug' + Fore.RESET for t in sorted(e.tags)]
+                    if now > e.deadline:
+                        dates = bright(yellow('(LATE: was due {})'.format(display_date(e.deadline, full_dates))))
+                    else:
+                        dates = yellow(redbg('(due {})'.format(display_date(e.deadline, full_dates))))
+                else:
+                    state_style = normal
+                    background = bluebg
+                    dates = dim('({})'.format('added {}'.format(display_date(e.created, full_dates))))
+
+            else:
+                dates = dim('({})'.format('added {}'.format(display_date(e.created, full_dates))))
+
+            tags = [cyan(t) if t != 'bug' or e.deadline else red('bug') for t in sorted(e.tags)]
             display_tags = ','.join(tags)
 
             display_tags += ' ' * (maxtag - len(','.join(e.tags)))
 
             msg = summary(e.msg)
             if e.points > 1:
-                points = '{}{}{}'.format(Fore.CYAN, e.points, Fore.RESET)
+                points = cyan(points)
             else:
                 points = ''
 
-            print(('  {}+- {}{:0>4}{}  {:12}  {}{}{} {}({}){} {}{}').format(state_style,Fore.YELLOW, e.id, Fore.RESET, display_tags, Fore.WHITE, msg, Fore.RESET, Style.DIM, dates, Style.NORMAL, points, Style.RESET_ALL))
+            print(state_style(background('  +- {}  {}  {} {} {}'.format(displayid(e.id), display_tags, white(msg), dates, points))))
 
 def show_full_entry(db, id):
     entries = fetch_entries(db, (), id)
     e = entries[0]
 
-    display_tags = ','.join(sorted(e.tags))
+    tags = [cyan(t) if t != 'bug' else red('bug') for t in sorted(e.tags)]
+    display_tags = ','.join(tags)
     dates = e.created.strftime('%Y-%m-%d %H:%M')
 
     if not e.open:
         dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
 
-    print(('{}{:0>4}{} | {}{}{} | {}{}{} | {}{}{}').format(Fore.YELLOW, e.id, Fore.RESET, Fore.CYAN, display_tags, Fore.RESET, Style.DIM, dates, Style.RESET_ALL, Fore.CYAN, e.points, Fore.RESET))
-    print('----------------------------------------------')
-    print(Fore.WHITE + e.msg + Fore.RESET)
+    print(('{} | {} | {} | {}').format(displayid(e.id), display_tags, dim(dates), cyan(e.points)))
+    print(white(e.msg))
 
 def show_tags(db, args):
     c = db.cursor()
     for row in c.execute('SELECT tag, COUNT(*) as count FROM tag GROUP BY tag ORDER BY tag'):
-        print('{}{}{} - {}'.format(Fore.CYAN, row['tag'], Fore.RESET, row['count']))
+        print('{} - {}'.format(cyan(row['tag']), white(row['count'])))
 
 def add_history(c, id, event):
     c.execute('INSERT INTO history (entry, date, event) VALUES (?, CURRENT_TIMESTAMP, ?)', (id, event))
@@ -265,21 +309,24 @@ def add_entry_internal(db, tags, msg, points, edit):
 
     db.commit()
 
-    print('Added {}{:0>4}{}: {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.WHITE, summary(msg), Fore.RESET))
+    print('Added {}: {}'.format(displayid(id), white(summary(msg))))
 
 def change_state(db, id, state):
     c = db.cursor()
     c.execute('UPDATE entry SET state = ? where rowid = ?', (state, id))
+    if c.rowcount == 0:
+        return False
+
     add_history(c, id, state)
     db.commit()
-    return c.rowcount > 0
+    return True
 
 def edit_entry(db, args):
     id = args.id
     entries = fetch_entries(db, (), id)
 
     if len(entries) < 1:
-        print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        print('{} doesn\'t exist'.format(displayid(id)))
         return
 
     e = entries[0]
@@ -292,7 +339,7 @@ def edit_entry(db, args):
     c.execute('UPDATE entry SET msg = ? WHERE rowid = ?', (msg, id))
     db.commit()
 
-    print('Modified {}{:0>4}{}: {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.WHITE, summary(msg), Fore.RESET))
+    print('Modified {}: {}'.format(displayid(e.id), white(summary(msg))))
 
 def feature_tag(db, args):
     if args.remove:
@@ -306,7 +353,7 @@ def feature_tag(db, args):
         c.execute('INSERT INTO feature VALUES (?)', (tag,))
     db.commit()
 
-    print('Tag {}{}{} is now a feature'.format(Fore.CYAN, tag, Style.RESET_ALL))
+    print('Tag {} is now a feature'.format(cyan(tag)))
 
 def unfeature_tag(db, args):
     tag = args.tag
@@ -314,7 +361,7 @@ def unfeature_tag(db, args):
     c.execute('DELETE FROM feature WHERE tag = ?', (tag,))
     db.commit()
 
-    print('Tag {}{}{} is no longer a feature'.format(Fore.CYAN, tag, Style.RESET_ALL))
+    print('Tag {} is no longer a feature'.format(cyan(tag)))
 
 def set_deadline(db, id, date):
     c = db.cursor()
@@ -332,29 +379,29 @@ def start_entry(db, args):
     tf = None
 
     if args.timeframe:
-        now = datetime.datetime.now()
+        now = datetime.now()
         tf_str = args.timeframe
         tf = dateparser.parse(tf_str, settings={'RELATIVE_BASE': now}).replace(hour=23, minute=59, second=0)
 
         if tf < now:
-            print(Fore.RED + "ERROR: time flows inexorably forwards.\nPromising to complete an issue in the past will bring you nothing but despair." + Fore.RESET)
+            print(red("ERROR: time flows inexorably forwards.\nPromising to complete an issue in the past will bring you nothing but despair."))
             quit()
 
     if change_state(db, id, 'doing'):
-        print('Started {}{:0>4}{}'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        print('Started {}'.format(displayid(id)))
         if tf:
             set_deadline(db, id, tf)
-            print('Your deadline is midnight {}{}{}'.format(Fore.RED, tf.strftime('%Y-%m-%d'), Fore.RESET))
+            print('Your deadline is midnight {}'.format(red(tf.strftime('%Y-%m-%d'))))
     else:
-        print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        print('{} doesn\'t exist'.format(displayid(id)))
 
 def backlog_entry(db, args):
     id = args.id
     if change_state(db, id, 'backlog'):
         clear_deadline(db, id)
-        print('Moved {}{:0>4}{} to backlog'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        print('Moved {} to backlog'.format(displayid(id)))
     else:
-        print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        print('{} doesn\'t exist'.format(display(id)))
 
 def end_entry(db, args):
     id = args.id
@@ -384,9 +431,9 @@ def tag_entry(db, args):
     if count == 0:
         c.execute('INSERT INTO tag VALUES (?, ?)', (tag, id))
         db.commit()
-        print('Tagged {}{:0>4}{} with {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.CYAN, tag, Style.RESET_ALL))
+        print('Tagged {} with {}'.format(displayid(id), cyan(tag)))
     else:
-        print('{}{:0>4}{} already tagged with {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.CYAN, tag, Style.RESET_ALL))
+        print('{} already tagged with {}'.format(displayid(id), cyan(tag)))
 
 def untag_entry(db, args):
     tag = args.tag
@@ -397,9 +444,9 @@ def untag_entry(db, args):
     db.commit()
 
     if c.rowcount > 0:
-        print('Untagged {}{:0>4}{} with {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.CYAN, tag, Style.RESET_ALL))
+        print('Untagged {} with {}'.format(displayid(id), cyan(tag)))
     else:
-        print('{}{:0>4}{} wasn\'t tagged with {}{}{}'.format(Fore.YELLOW, id, Style.RESET_ALL, Fore.CYAN, tag, Style.RESET_ALL))
+        print('{} wasn\'t tagged with {}'.format(displayid(id), cyan(tag)))
 
 def remove_entry(db, args):
     id = args.id
@@ -410,9 +457,9 @@ def remove_entry(db, args):
     db.commit()
 
     if c.rowcount > 0:
-        print('Deleted {}{:0>4}{}'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        print('Deleted {}'.format(displayid(id)))
     else:
-        print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
+        print('{} doesn\'t exist'.format(displayid(id)))
     
 def burndown(db, args):
     tags = args.tags.split(',') if args.tags else []
@@ -438,7 +485,7 @@ def burndown(db, args):
     if first_date == None:
         days = 0
     else:
-        days = int((datetime.datetime.today() - first_date).days) + 1
+        days = int((datetime.today() - first_date).days) + 1
 
     screen = [[0 for x in range(days)] for y in range(h)]
     maxy = 0
@@ -446,7 +493,7 @@ def burndown(db, args):
     last = 0
 
     for n in range(days):
-        date = first_date + datetime.timedelta(days=n)
+        date = first_date + timedelta(days=n)
         key = date.strftime("%Y%j")
 
         total = total + created.get(key, 0) - done.get(key, 0)
@@ -479,14 +526,14 @@ def burndown(db, args):
             if screen[y][x]:
                 y_end[x] = y
                 if x < days - 1:
-                    line += Fore.CYAN + '⭑ ' + Fore.RESET
+                    line += cyan('⭑ ')
                 else:
-                    line += Fore.WHITE + '★ ' + Fore.RESET
+                    line += white('★ ')
             elif y_end[x] and y < y_end[x]:
                 if x == days - 1:
-                    line += Fore.WHITE + '. ' + Style.RESET_ALL
+                    line += white('. ')
                 else:
-                    line += Style.DIM + '. ' + Style.RESET_ALL
+                    line += dim('. ')
             else:
                 line += empty
 
@@ -495,15 +542,15 @@ def burndown(db, args):
                 if x == predicted - 1:
                     line += '🏁'
                 else:
-                    line += Fore.CYAN + Style.DIM + '● ' + Style.RESET_ALL
+                    line += dim(cyan('● '))
             else:
                 line += empty
         
         print(line)
 
-    end_date = datetime.date.today() + datetime.timedelta(days=predicted)
+    end_date = date.today() + timedelta(days=predicted)
 
-    print('Finish in {}{}{} days on {}{}{} {}(velocity {:.1f}){}'.format(Fore.WHITE + Style.BRIGHT, predicted, Style.RESET_ALL, Fore.WHITE + Style.BRIGHT, end_date.strftime('%A %d %b %Y'), Style.RESET_ALL, Style.DIM, velocity, Style.RESET_ALL))
+    print('Finish in {} days on {} {}'.format(bright(white(predicted)), bright(white(end_date.strftime('%A %d %b %Y'))), dim("(velocity {:.1f})".format(velocity))))
 
 def from_editor(start_text, start_line):
     tmp_file = '_pm_.txt'
@@ -566,7 +613,10 @@ def make_a_plan(db, args):
 def main():
     db = init_db()
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="teenypm - a teeny, tiny CLI project manager | v" + __version__)
+    parser.add_argument('-a', '--all', help='Show all issues, even closed', action="store_true")
+    parser.add_argument('-d', '--dates', help='Show full dates', action="store_true")
+
     subparsers = parser.add_subparsers(title='subcommands', metavar="<command>", help='sub-command help')
 
     p_show = subparsers.add_parser('show', help='show issues')
@@ -634,7 +684,7 @@ def main():
     args = parser.parse_args()
 
     if not hasattr(args, 'func'):
-        show_entries_internal(db, [], False, False)
+        show_entries_internal(db, [], args.all, args.dates)
     else:
         args.func(db, args)
 

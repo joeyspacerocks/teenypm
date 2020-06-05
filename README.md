@@ -15,18 +15,18 @@ Once installed you can execute it using:
 
 When run `pm` will create a small sqlite file in your current working directory named `pm.db`.
 
-* `pm` - show open issues
+* `pm [-a] [-d]` - show open issues, optionally including closed (`-a`), with full dates (`-d`)
 * `pm -h` - show help
 * `pm <command> -h` show help for command
 
 Subcommands:
 
-* `pm show [-a] [tags]` - show issues, optionally including closed and/or filtering by tags
+* `pm show [-a] [-d] [tags]` - show issues, optionally including closed (`-a`), with full dates (`-d`) and/or filtering by tags
 * `pm tags` - show a summary of all tags with issue counts
-* `pm add [-e] <tags> <title> [points]` - add an issue with optional complexity points (defaults to 1), optionally opening an editor for multiline text
+* `pm add [-e] <tags> <title> [points]` - add an issue with optional complexity points (defaults to 1), optionally opening an editor (`-e`) for multiline text
 * `pm edit <id>` - open an editor to edit issue text
 * `pm rm <id>` - remove an issue
-* `pm start <id>` - mark issue as in-progress
+* `pm start <id> [deadline]` - mark issue as in-progress, with optional deadline (in humanized form - e.g. `in 2 days`)
 * `pm backlog <id>` - places issue back in the backlog
 * `pm end <id>` - mark issue as completed
 * `pm commit <id>` - mark issue as completed and commit changes to git using issue text for message

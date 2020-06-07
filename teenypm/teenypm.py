@@ -168,8 +168,8 @@ def displayid(id):
     return yellow(str(id).zfill(4))
 
 def show_entries_internal(db, tags, all, full_dates):
-    if tags and tags.isdigit():
-        show_full_entry(db, tags)
+    if tags and (tags.startswith('PM') and tags[2:].isdigit()):
+        show_full_entry(db, map_id(tags))
         return
 
     total = 0
@@ -606,6 +606,11 @@ def make_a_plan(db, args):
 
             add_entry_internal(db, tags, task['msg'], points, False)
 
+def map_id(id):
+    if id.startswith('PM'):
+        return id[2:]
+    return id
+
 def main():
     db = init_db()
 
@@ -681,6 +686,9 @@ def main():
     args = parser.parse_args()
 
     col_init(strip = args.nocolour)
+
+    if hasattr(args, 'id'):
+        args.id = map_id(args.id)
 
     if not hasattr(args, 'func'):
         show_entries_internal(db, [], args.all, args.dates)

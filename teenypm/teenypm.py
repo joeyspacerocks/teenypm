@@ -412,7 +412,7 @@ def end_entry(db, args):
 def end_entry_and_commit(db, args):
     if end_entry(db, args):
         e = fetch_entries(db, (), args.id)[0]
-        os.system('git commit -a -m "{}"'.format(e.msg))
+        os.system('git commit -a -m "{}"'.format('PM{:04} - {}'.format(e.id, e.msg)))
 
 def tag_entry(db, args):
     if args.remove:

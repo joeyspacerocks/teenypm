@@ -5,7 +5,11 @@ Suitable for solo development projects; stores data in a local SQLite file.
 
 ## Install
 
-`pip install teenypm`
+`teenypm` requires Python 3 with SQLite installed.
+
+Install using:
+
+`pip3 install teenypm`
 
 Once installed you can execute it using:
 
@@ -13,11 +17,12 @@ Once installed you can execute it using:
 
 ## Usage
 
-When run `pm` will create a small sqlite file in your current working directory named `pm.db`.
+When run `pm` will create a small SQLite file in your current working directory named `pm.db`.
 
 * `pm [-a] [-d]` - show open issues, optionally including closed (`-a`), with full dates (`-d`)
 * `pm -h` - show help
 * `pm <command> -h` show help for command
+* `pm -nc ...` display results with no colours
 
 Subcommands:
 

@@ -3,7 +3,7 @@ from sys import argv
 import os
 import os.path
 import sqlite3
-from colorama import Fore, Back, Style
+from colorama import Fore, Back, Style, init as col_init
 from datetime import datetime, timedelta
 from pprint import pprint
 import math
@@ -612,6 +612,7 @@ def main():
     parser = argparse.ArgumentParser(description="teenypm - a teeny, tiny CLI project manager | v" + __version__)
     parser.add_argument('-a', '--all', help='Show all issues, even closed', action="store_true")
     parser.add_argument('-d', '--dates', help='Show full dates', action="store_true")
+    parser.add_argument('-nc', '--nocolour', help='Disable colour output', action="store_true")
 
     subparsers = parser.add_subparsers(title='subcommands', metavar="<command>", help='sub-command help')
 
@@ -678,6 +679,8 @@ def main():
     p_burn.set_defaults(func=burndown)
 
     args = parser.parse_args()
+
+    col_init(strip = args.nocolour)
 
     if not hasattr(args, 'func'):
         show_entries_internal(db, [], args.all, args.dates)

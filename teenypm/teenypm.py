@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from pprint import pprint
 import math
 import re
-import dateparser
 import humanize
 import argparse
 
@@ -54,13 +53,6 @@ def init_db():
     c.execute('CREATE TABLE IF NOT EXISTS feature (tag TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS deadline (entry INT, date INT)')
 
-    # migrate pre-history entries - if no history present
-    c.execute("UPDATE entry SET state = 'backlog' WHERE state = 'open'")
-    count = c.execute('SELECT count(*) as count from history').fetchone()['count']
-    if count == 0:
-        c.execute("INSERT INTO history SELECT rowid, 'create', created FROM entry")
-        c.execute("INSERT INTO history SELECT rowid, 'done', done FROM entry WHERE done IS NOT NULL")
-
     db.commit()
     return db
 
@@ -69,8 +61,10 @@ def summary(msg):
 
     if len(parts) > 1:
         return '{} {}'.format(parts[0], bluebg('[+]'))
-    else:
+    elif len(parts) > 0:
         return parts[0]
+    else:
+        return '<empty description>' + Style.RESET_ALL
 
 def fetch_history(db, entry):
     c = db.cursor()
@@ -379,6 +373,8 @@ def start_entry(db, args):
     tf = None
 
     if args.timeframe:
+        import dateparser   # bad style, but dateparser very slow to import
+
         now = datetime.now()
         tf_str = args.timeframe
         tf = dateparser.parse(tf_str, settings={'RELATIVE_BASE': now}).replace(hour=23, minute=59, second=0)

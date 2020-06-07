@@ -40,8 +40,7 @@ Subcommands:
 
 *Planned*
 
-* `pm start random` - start a random backlog issue
-* `pm start <id> <timeframe>` - start an issue and promise to finish it within a timeframe
+* `pm start random` - start a random backlog issue, for those moments of indecision
 
 ## Configuration
 

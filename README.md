@@ -49,7 +49,7 @@ Subcommands:
 
 ## Configuration
 
-The editor used for the `addx`, `edit` and `plan` commands defaults to `vim`.
+The editor used for the `edit`ing and `plan`ing defaults to `vim`.
 
 You can specify an alternative by setting the `EDITOR` environment variable.
 

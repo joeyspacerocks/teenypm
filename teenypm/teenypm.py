@@ -11,7 +11,7 @@ import re
 import humanize
 import argparse
 
-__version__ = '0.1.7'
+__version__ = '0.1.8'
 
 DEFAULT_EDITOR = 'vi +<line>'
 
@@ -168,7 +168,7 @@ def displayid(id):
     return yellow(str(id).zfill(4))
 
 def show_entries_internal(db, tags, all, full_dates):
-    if tags and (tags.startswith('PM') and tags[2:].isdigit()):
+    if tags and ((tags.startswith('PM') and tags[2:].isdigit()) or tags.isdigit()):
         show_full_entry(db, map_id(tags))
         return
 

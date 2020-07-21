@@ -42,6 +42,7 @@ Subcommands:
 *Experimental*
 
 * `pm burn` - show a burndown chart with estimated finish time
+* `pm remote [-r] <plugin>` - set up (or remove) a two-way sync with a remote system (e.g. 'github')
 
 *Planned*
 
@@ -49,7 +50,7 @@ Subcommands:
 
 ## Configuration
 
-The editor used for the `edit`ing and `plan`ing defaults to `vim`.
+The editor used for `edit`ing and `plan`ing defaults to `vim`.
 
 You can specify an alternative by setting the `EDITOR` environment variable.
 

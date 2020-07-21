@@ -10,18 +10,24 @@ import math
 import re
 import humanize
 import argparse
+import importlib.util
+from collections.abc import MutableMapping
+import uuid
 
 __version__ = '0.1.8'
 
 DEFAULT_EDITOR = 'vi +<line>'
 
+active_plugins = []
+
 class Entry:
-    def __init__(self, id, state, msg, points, tags, history, deadline):
+    def __init__(self, id, state, msg, points, remote_id, tags, history, deadline):
         self.id = id
         self.state = state
         self.open = state != 'done'
         self.msg = msg
         self.points = points
+        self.remote_id = remote_id
         self.tags = tags
         self.history = history
         self.deadline = deadline
@@ -32,11 +38,117 @@ class Entry:
             elif e.event == 'done':
                 self.done = e.date
 
+    def summary(self):
+        parts = list(filter(lambda line: line != '', self.msg.split('\n')))
+
+        if len(parts) > 1:
+            return '{} {}'.format(parts[0], bluebg('[+]'))
+        elif len(parts) > 0:
+            return parts[0]
+        else:
+            return '<empty description>' + Style.RESET_ALL
+
+    def displayid(self):
+        if self.remote_id:
+            return yellow('{:0>4} '.format(str(self.id))) + white(dim('{}'.format('(gh {:0>2})'.format(self.remote_id))))
+        else:
+            return yellow(str(self.id).zfill(4))
+
 class Event:
     def __init__(self, entry, event, date):
         self.entry = entry
         self.event = event
         self.date = date
+
+class CustomDictOne(dict):
+   def __init__(self,*arg,**kw):
+      super(CustomDictOne, self).__init__(*arg, **kw)
+
+class Config(MutableMapping):
+    def __init__(self, db):
+        self.storage = dict()
+        self.db = db
+        c = db.cursor()
+        for row in c.execute('SELECT key, value FROM config'):
+            self[row['key']] = row['value']
+
+    def __getitem__(self, key):
+        return self.storage[key]
+
+    def __setitem__(self, key, item):
+        self.storage[key] = item
+        c = self.db.cursor()
+        c.execute('INSERT INTO config(key, value) VALUES(?, ? ) ON CONFLICT(key) DO UPDATE SET value=?', (key, item, item))
+        self.db.commit()
+    
+    def __delitem__(self, key):
+        del self.storage[key]
+        c = self.db.cursor()
+        c.execute('DELETE FROM config WHERE key = ?', (key,))
+        self.db.commit()
+
+    def __iter__(self):
+        return iter(self.storage)
+
+    def __len__(self):
+        return len(self.storage)
+
+class TeenyPM():
+    def __init__(self, db):
+        self.db = db
+
+    def fetch_features(self):
+        return active_plugins[0].fetch_features(self.config())
+
+    def fetch_entries(self, tags, id):
+        return active_plugins[0].fetch_issues(self.config(), tags, id)
+
+    def add_entry(self, tags, msg, points):
+        e = Entry(None, 'backlog', msg, points, None, tags, [], None)
+
+        for p in reversed(active_plugins):
+            p.add_entry(self.config(), e)
+
+        return e
+
+    def edit_entry(self, issue, msg):
+        for p in reversed(active_plugins):
+            id = p.update_entry(self.config(), issue, msg)
+
+    def feature_tag(self, tag):
+        for p in reversed(active_plugins):
+            id = p.add_feature(self.config(), tag)
+
+    def unfeature_tag(self, tag):
+        for p in reversed(active_plugins):
+            id = p.remove_feature(self.config(), tag)
+
+    def start_entry(self, issue, deadline = None):
+        for p in reversed(active_plugins):
+            p.start_entry(self.config(), issue, deadline)
+
+    def end_entry(self, issue):
+        for p in reversed(active_plugins):
+            p.end_entry(self.config(), issue)
+
+    def backlog_entry(self, issue):
+        for p in reversed(active_plugins):
+            p.backlog_entry(self.config(), issue)
+
+    def tag_entry(self, issue, tag):
+        for p in reversed(active_plugins):
+            p.tag_entry(self.config(), issue, tag)
+
+    def untag_entry(self, issue, tag):
+        for p in reversed(active_plugins):
+            p.untag_entry(self.config(), issue, tag)
+
+    def remove_entry(self, issue):
+        for p in reversed(active_plugins):
+            p.remove_entry(self.config(), issue)
+
+    def config(self):
+        return Config(self.db)
 
 def init_db():
     filename = 'pm.db'
@@ -47,79 +159,30 @@ def init_db():
     db.row_factory = sqlite3.Row
 
     c = db.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS entry (msg TEXT, points INT, state TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS tag (tag TEXT, entry INT)')
-    c.execute('CREATE TABLE IF NOT EXISTS history (entry INT, event TEXT, date INT)')
-    c.execute('CREATE TABLE IF NOT EXISTS feature (tag TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS deadline (entry INT, date INT)')
+    schema_version = c.execute('PRAGMA user_version').fetchone()[0]
+
+    if schema_version == 0:
+        c.execute('CREATE TABLE IF NOT EXISTS entry (msg TEXT, points INT, state TEXT)')
+        c.execute('CREATE TABLE IF NOT EXISTS tag (tag TEXT, entry INT)')
+        c.execute('CREATE TABLE IF NOT EXISTS history (entry INT, event TEXT, date INT)')
+        c.execute('CREATE TABLE IF NOT EXISTS feature (tag TEXT)')
+        c.execute('CREATE TABLE IF NOT EXISTS deadline (entry INT, date INT)')
+        c.execute('CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)')
+        c.execute('PRAGMA user_version = 1')
+        schema_version += 1
+    
+    if schema_version == 1:
+        c.execute('ALTER TABLE entry ADD COLUMN remote_id TEXT')
+        c.execute('PRAGMA user_version = 2')
+        schema_version += 1
+
+    if schema_version == 2:
+        c.execute('INSERT INTO config (key, value) VALUES(?, ?)', ('project.id', str(uuid.uuid4())))
+        c.execute('PRAGMA user_version = 3')
+        schema_version += 1
 
     db.commit()
     return db
-
-def summary(msg):
-    parts = list(filter(lambda line: line != '', msg.split('\n')))
-
-    if len(parts) > 1:
-        return '{} {}'.format(parts[0], bluebg('[+]'))
-    elif len(parts) > 0:
-        return parts[0]
-    else:
-        return '<empty description>' + Style.RESET_ALL
-
-def fetch_history(db, entry):
-    c = db.cursor()
-    history = []
-    for row in c.execute('SELECT event, date as "date [timestamp]" FROM history WHERE entry = ?', (entry,)):
-        history.append(Event(
-            entry, row['event'], row['date']
-        ))
-
-    return history
-
-def fetch_features(db):
-    c = db.cursor()
-    features = []
-    for row in c.execute('SELECT tag FROM feature'):
-        features.append(row['tag'])
-    return features
-
-def fetch_entries(db, tags, id):
-    c = db.cursor()
-    result = []
-    deadlines = {}
-
-    for row in c.execute('SELECT entry, date as "date [timestamp]" FROM deadline'):
-        deadlines[row['entry']] = row['date']
-
-    sql = 'SELECT e.rowid AS id, state, msg, points, GROUP_CONCAT(tag) AS tags FROM tag t INNER JOIN entry e ON e.rowid = t.entry'
-    if id:
-        c.execute(sql + ' WHERE e.rowid = ? GROUP BY e.rowid', (id,))
-    else:
-        c.execute(sql + ' GROUP BY e.rowid')
-
-    for row in c:
-        etags = row['tags'].split(',')
-
-        match = False
-        if len(tags) > 0:
-            for t in tags.split(','):
-                if t in etags:
-                    match = True
-                    break
-        else:
-            match = True
-
-        if match:
-            result.append(Entry(
-                row['id'], row['state'],
-                row['msg'], row['points'],
-                etags,
-                fetch_history(db, row['id']),
-                deadlines.get(row['id'], None)
-            ))
-
-    state_order = ['doing', 'backlog', 'done']
-    return sorted(result, key=lambda e: (state_order.index(e.state), -e.id))
 
 def display_date(date, full_date):
     if full_date:
@@ -136,6 +199,9 @@ def show_entries(db, args):
 
 def red(t):
     return '{}{}{}'.format(Fore.RED, t, Fore.RESET)
+
+def black(t):
+    return '{}{}{}'.format(Fore.BLACK, t, Fore.RESET)
 
 def white(t):
     return '{}{}{}'.format(Fore.WHITE, t, Fore.RESET)
@@ -164,19 +230,19 @@ def redbg(t):
 def bluebg(t):
     return '{}{}{}'.format(Back.BLUE, t, Back.RESET)
 
-def displayid(id):
-    return yellow(str(id).zfill(4))
+def yellowbg(t):
+    return '{}{}{}'.format(Back.YELLOW, t, Back.RESET)
 
-def show_entries_internal(db, tags, all, full_dates):
+def show_entries_internal(tpm, tags, all, full_dates):
     if tags and ((tags.startswith('PM') and tags[2:].isdigit()) or tags.isdigit()):
-        show_full_entry(db, map_id(tags))
+        show_full_entry(tpm, map_id(tags))
         return
 
     total = 0
     open = 0
 
-    entries = fetch_entries(db, tags, None)
-    features = fetch_features(db)
+    entries = tpm.fetch_entries(tags, None)
+    features = tpm.fetch_features()
 
     maxtag = 0
 
@@ -253,16 +319,16 @@ def show_entries_internal(db, tags, all, full_dates):
 
             display_tags += ' ' * (maxtag - len(','.join(e.tags)))
 
-            msg = summary(e.msg)
+            msg = e.summary()
             if e.points > 1:
                 points = cyan(points)
             else:
                 points = ''
 
-            print(state_style(background('  +- {}  {}  {} {} {}'.format(displayid(e.id), display_tags, white(msg), dates, points))))
+            print(state_style(background('  +- {}  {}  {} {} {}'.format(e.displayid(), display_tags, white(msg), dates, points))))
 
-def show_full_entry(db, id):
-    entries = fetch_entries(db, (), id)
+def show_full_entry(tpm, id):
+    entries = tpm.fetch_entries((), id)
     e = entries[0]
 
     tags = [cyan(t) if t != 'bug' else red('bug') for t in sorted(e.tags)]
@@ -272,199 +338,102 @@ def show_full_entry(db, id):
     if not e.open:
         dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
 
-    print(('{} | {} | {} | {}').format(displayid(e.id), display_tags, dim(dates), cyan(e.points)))
+    print(('{} | {} | {} | {}').format(e.displayid(), display_tags, dim(dates), cyan(e.points)))
     print(white(e.msg))
 
-def show_tags(db, args):
-    c = db.cursor()
+def show_tags(tpm, args):
+    c = tpm.db.cursor()
     for row in c.execute('SELECT tag, COUNT(*) as count FROM tag GROUP BY tag ORDER BY tag'):
         print('{} - {}'.format(cyan(row['tag']), white(row['count'])))
 
-def add_history(c, id, event):
-    c.execute('INSERT INTO history (entry, date, event) VALUES (?, CURRENT_TIMESTAMP, ?)', (id, event))
-
-def add_entry(db, args):
-    add_entry_internal(db, args.tags.split(','), args.desc, args.points, args.edit)
-
-def add_entry_internal(db, tags, msg, points, edit):
-    if edit:
+def add_entry(tpm, args):
+    msg = args.desc
+    if args.edit:
         content = from_editor(msg, 0)
         if content != None:
             msg = ''.join(content)
 
-    c = db.cursor()
-    c.execute("INSERT INTO entry (msg, points, state) VALUES (?, ?, 'backlog')", (msg, points))
+    e = tpm.add_entry(args.tags.split(','), msg, args.points)
+    print('Added {}: {}'.format(e.displayid(), white(e.summary())))
 
-    id = c.lastrowid
-    add_history(c, id, 'create')
-
-    for tag in tags:
-        c.execute('INSERT INTO tag VALUES (?, ?)', (tag, id))
-
-    db.commit()
-
-    print('Added {}: {}'.format(displayid(id), white(summary(msg))))
-
-def change_state(db, id, state):
-    c = db.cursor()
-    c.execute('UPDATE entry SET state = ? where rowid = ?', (state, id))
-    if c.rowcount == 0:
-        return False
-
-    add_history(c, id, state)
-    db.commit()
-    return True
-
-def edit_entry(db, args):
-    id = args.id
-    entries = fetch_entries(db, (), id)
-
-    if len(entries) < 1:
-        print('{} doesn\'t exist'.format(displayid(id)))
-        return
-
-    e = entries[0]
-
-    content = from_editor(e.msg, 0)
+def edit_entry(tpm, args):
+    content = from_editor(args.issue.msg, 0)
     if content != None:
         msg = ''.join(content)
 
-    c = db.cursor()
-    c.execute('UPDATE entry SET msg = ? WHERE rowid = ?', (msg, id))
-    db.commit()
+    tpm.edit_entry(args.issue, msg)
+    print('Modified {}: {}'.format(args.issue.displayid(), white(args.issue.summary())))
 
-    print('Modified {}: {}'.format(displayid(e.id), white(summary(msg))))
+def feature_tag(tpm, args):
+    tag = args.tag
 
-def feature_tag(db, args):
     if args.remove:
-        unfeature_tag(db, args)
-        return
+        tpm.unfeature_tag(tag)
+        print('Tag {} is no longer a feature'.format(cyan(tag)))
+    else:
+        tpm.feature_tag(tag)
+        print('Tag {} is now a feature'.format(cyan(tag)))
 
-    tag = args.tag
-    c = db.cursor()
-    count = c.execute('SELECT count(*) AS count FROM feature where tag = ?', (tag,)).fetchone()['count']
-    if count == 0:
-        c.execute('INSERT INTO feature VALUES (?)', (tag,))
-    db.commit()
-
-    print('Tag {} is now a feature'.format(cyan(tag)))
-
-def unfeature_tag(db, args):
-    tag = args.tag
-    c = db.cursor()
-    c.execute('DELETE FROM feature WHERE tag = ?', (tag,))
-    db.commit()
-
-    print('Tag {} is no longer a feature'.format(cyan(tag)))
-
-def set_deadline(db, id, date):
-    c = db.cursor()
-    c.execute('DELETE FROM deadline WHERE entry = ?', (id, ))
-    c.execute('INSERT INTO deadline (entry, date) VALUES (?, ?)', (id, date))
-    db.commit()
-
-def clear_deadline(db, id):
-    c = db.cursor()
-    c.execute('DELETE FROM deadline WHERE entry = ?', (id, ))
-    db.commit()
-
-def start_entry(db, args):
+def start_entry(tpm, args):
     id = args.id
     tf = None
 
     if args.timeframe:
         import dateparser   # bad style, but dateparser very slow to import
-
         now = datetime.now()
         tf_str = args.timeframe
         tf = dateparser.parse(tf_str, settings={'RELATIVE_BASE': now}).replace(hour=23, minute=59, second=0)
-
         if tf < now:
             print(red("ERROR: time flows inexorably forwards.\nPromising to complete an issue in the past will bring you nothing but despair."))
             quit()
 
-    if change_state(db, id, 'doing'):
-        print('Started {}'.format(displayid(id)))
-        if tf:
-            set_deadline(db, id, tf)
-            print('Your deadline is midnight {}'.format(red(tf.strftime('%Y-%m-%d'))))
-    else:
-        print('{} doesn\'t exist'.format(displayid(id)))
+    tpm.start_entry(args.issue, tf)
+    print('Started {}'.format(tpm.displayid(id)))
+    if tf:
+        print('Your deadline is midnight {}'.format(red(tf.strftime('%Y-%m-%d'))))
 
-def backlog_entry(db, args):
+def backlog_entry(tpm, args):
+    tpm.backlog_entry(args.issue)
+    print('Moved {} to backlog'.format(args.issue.displayid()))
+
+def end_entry(tpm, args):
+    tpm.end_entry(args.issue)
+    print('Ended {}{:0>4}{}'.format(args.issue.displayid()))
+
+def end_entry_and_commit(tpm, args):
+    end_entry(tpm, args)
+    os.system('git commit -a -m "{}"'.format('PM{:04} - {}'.format(args.issue.id, args.issue.msg)))
+
+def tag_entry(tpm, args):
+    tag = args.tag
     id = args.id
-    if change_state(db, id, 'backlog'):
-        clear_deadline(db, id)
-        print('Moved {} to backlog'.format(displayid(id)))
-    else:
-        print('{} doesn\'t exist'.format(display(id)))
+    issue = args.issue
 
-def end_entry(db, args):
-    id = args.id
-    if change_state(db, id, 'done'):
-        clear_deadline(db, id)
-        print('Ended {}{:0>4}{}'.format(Fore.YELLOW, id, Style.RESET_ALL))
-        return True
-    else:
-        print('{}{:0>4}{} doesn\'t exist'.format(Fore.YELLOW, id, Style.RESET_ALL))
-        return False
-
-def end_entry_and_commit(db, args):
-    if end_entry(db, args):
-        e = fetch_entries(db, (), args.id)[0]
-        os.system('git commit -a -m "{}"'.format('PM{:04} - {}'.format(e.id, e.msg)))
-
-def tag_entry(db, args):
     if args.remove:
-        untag_entry(db, args)
-        return
-
-    tag = args.tag
-    id = args.id
-    c = db.cursor()
-
-    count = c.execute('SELECT count(*) as count from tag where entry = ? and tag = ?', (id, tag)).fetchone()['count']
-    if count == 0:
-        c.execute('INSERT INTO tag VALUES (?, ?)', (tag, id))
-        db.commit()
-        print('Tagged {} with {}'.format(displayid(id), cyan(tag)))
+        if tag in issue.tags:
+            tpm.untag_entry(issue, tag)
+            print('Untagged {} with {}'.format(issue.displayid(), cyan(tag)))
+        else:
+            print('{} wasn\'t tagged with {}'.format(issue.displayid(), cyan(tag)))
     else:
-        print('{} already tagged with {}'.format(displayid(id), cyan(tag)))
+        if tag not in issue.tags:
+            tpm.tag_entry(issue, tag)
+            print('Tagged {} with {}'.format(issue.displayid(), cyan(tag)))
+        else:
+            print('{} already tagged with {}'.format(issue.displayid(), cyan(tag)))
 
-def untag_entry(db, args):
-    tag = args.tag
-    id = args.id
-    c = db.cursor()
+def remove_entry(tpm, args):
+    tpm.remove_entry(args.issue)
+    print('Deleted {}'.format(args.issue.displayid()))
 
-    c.execute('DELETE FROM tag where tag = ? and entry = ?', (tag, id))
-    db.commit()
-
-    if c.rowcount > 0:
-        print('Untagged {} with {}'.format(displayid(id), cyan(tag)))
-    else:
-        print('{} wasn\'t tagged with {}'.format(displayid(id), cyan(tag)))
-
-def remove_entry(db, args):
-    id = args.id
-    c = db.cursor()
-
-    c.execute('DELETE FROM tag where entry = ?', (id,))
-    c.execute('DELETE FROM entry where rowid = ?', (id,))
-    db.commit()
-
-    if c.rowcount > 0:
-        print('Deleted {}'.format(displayid(id)))
-    else:
-        print('{} doesn\'t exist'.format(displayid(id)))
-    
-def burndown(db, args):
+def burndown(tpm, args):
     tags = args.tags.split(',') if args.tags else []
 
     first_date = None
     created = {}
     done = {}
 
-    for e in fetch_entries(db, tags, None):
+    for e in tpm.fetch_entries(tags, None):
         ckey = e.created.strftime("%Y%j")
         created[ckey] = created.get(ckey, 0) + e.points
 
@@ -578,7 +547,7 @@ def from_editor(start_text, start_line):
 
     return content
 
-def make_a_plan(db, args):
+def make_a_plan(tpm, args):
     tag = args.tag
     help_text = '# One line for each issue, with optional tags and points.\n#  <desc> [[<tag>,...]] [points]\n# For example:\n#  Sort out the thing there [bug] 2\n\n'
     content = from_editor(help_text, help_text.count('\n') + 1)
@@ -604,16 +573,92 @@ def make_a_plan(db, args):
             else:
                 points = 1
 
-            add_entry_internal(db, tags, task['msg'], points, False)
+            e = tpm.add_entry(tags, task['msg'], points)
+            print('Added {}: {}'.format(e.displayid(), white(msg)))
+
+def sync(tpm):
+    config = tpm.config()
+
+    p1 = active_plugins[0]
+    p2 = active_plugins[1]
+
+    local_lookup = {}
+    local_issues = p1.fetch_issues(config)
+    remote_issues = p2.fetch_issues(config)
+
+    for issue in local_issues:
+        if issue.remote_id:
+            local_lookup[issue.remote_id] = issue
+        elif issue.msg != '':
+            p2.add_entry(config, issue)
+            print('Local issue pushed: {} - {}'.format(issue.displayid(), issue.summary()))
+
+    for issue in remote_issues:
+        if issue.remote_id not in local_lookup:
+            p1.add_entry(config, issue)
+            print('GitHub issue pulled: GH #{} - {}'.format(issue.remote_id, issue.summary()))
 
 def map_id(id):
     if id.startswith('PM'):
         return id[2:]
     return id
 
+def remote_plugin(tpm, args):
+    plugin = import_plugin(args.plugin)
+    config = tpm.config()
+
+    plugin_cp = 'plugin.' + args.plugin
+    plugin_enabled = plugin_cp in config
+
+    if args.remove:
+        if not plugin_enabled:
+            print('Remote {} has not been setup'.format(args.plugin))
+        else:
+            plugin.remove(config)
+            del config[plugin_cp]
+            activate_plugins.remove(args.plugin)
+            print('Removed {} remote'.format(args.plugin))
+    else:
+        if plugin_enabled:
+            print('Remote {} is already configured'.format(args.plugin))
+        else:
+            if plugin.setup(config):
+                config[plugin_cp] = 'true'
+                activate_plugins.append(args.plugin)
+                print('Remote {} has been set up'.format(args.plugin))
+
+    # TEST
+    sync(tpm)
+
+def import_plugin(p):
+    plugins_dir = os.path.join(os.path.dirname(__file__), 'plugins')
+
+    plugins = {}
+    for f in [f for f in os.listdir(plugins_dir) if f.endswith('.py')]:
+        plugins[f.split('.')[0]] = os.path.join(plugins_dir, f)
+
+    if p not in plugins:
+        print(red('ERROR:') + ' plugin {} not found - available plugins are:'.format(white(bright(p))))
+        for ap in plugins:
+            print('  - ' + ap)
+
+    spec = importlib.util.spec_from_file_location("plugins." + p, plugins[p])
+    plugin = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(plugin)
+    return plugin
+
+def activate_plugins(config):
+    active_plugins.append(import_plugin('local'))
+    for key in config.keys():
+        if key.startswith('plugin.'):
+            active_plugins.append(import_plugin(key.split('.')[1]))
+
 def main():
     db = init_db()
+    tpm = TeenyPM(db)
 
+    activate_plugins(tpm.config())
+    
     parser = argparse.ArgumentParser(description="teenypm - a teeny, tiny CLI project manager | v" + __version__)
     parser.add_argument('-a', '--all', help='Show all issues, even closed', action="store_true")
     parser.add_argument('-d', '--dates', help='Show full dates', action="store_true")
@@ -683,6 +728,11 @@ def main():
     p_burn.add_argument('tags', type=str, nargs='?', help='comma-seperated tags')
     p_burn.set_defaults(func=burndown)
 
+    p_remote = subparsers.add_parser('remote', help='integrate a remote API')
+    p_remote.add_argument('plugin', type=str, help='"supported: github"')
+    p_remote.add_argument('-r', '--remove', help='remove remote', action='store_true')
+    p_remote.set_defaults(func=remote_plugin)
+
     args = parser.parse_args()
 
     col_init(strip = args.nocolour)
@@ -690,10 +740,16 @@ def main():
     if hasattr(args, 'id'):
         args.id = map_id(args.id)
 
+        entries = tpm.fetch_entries([], args.id)
+        if len(entries) == 0:
+            print('{} doesn\'t exist'.format(yellow(str(args.id).zfill(4))))
+            exit(0)
+        args.issue = entries[0]
+
     if not hasattr(args, 'func'):
-        show_entries_internal(db, [], args.all, args.dates)
+        show_entries_internal(tpm, [], args.all, args.dates)
     else:
-        args.func(db, args)
+        args.func(tpm, args)
 
     db.close()
 

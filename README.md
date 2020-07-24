@@ -22,7 +22,6 @@ When run `pm` will create a small SQLite file in your current working directory 
 * `pm [-a] [-d]` - show open issues, optionally including closed (`-a`), with full dates (`-d`)
 * `pm -h` - show help
 * `pm <command> -h` show help for command
-* `pm -nc ...` display results with no colours
 
 Subcommands:
 
@@ -38,10 +37,6 @@ Subcommands:
 * `pm tag [-r] <tag> <id>` - add/remove a tag to/from an issue
 * `pm feature [-r] <tag>` - flags/unflags a tag as a feature (used to group issues in list display)
 * `pm plan [tag]` - open an editor for entering multiple issues, optionally tagged with `<tag>`
-
-*Experimental*
-
-* `pm burn` - show a burndown chart with estimated finish time
 * `pm remote [-r] <plugin>` - set up (or remove) a two-way sync with a remote system (e.g. 'github')
 
 *Planned*

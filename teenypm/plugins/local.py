@@ -5,6 +5,7 @@ import pprint
 import os
 import sys
 import requests
+from datetime import datetime, timezone
 from teenypm import Entry, Event
 
 def setup(config):
@@ -18,7 +19,8 @@ def fetch_history(db, entry):
     history = []
     for row in c.execute('SELECT event, date as "date [timestamp]" FROM history WHERE entry = ?', (entry,)):
         history.append(Event(
-            entry, row['event'], row['date']
+            entry, row['event'], 
+            row['date'].replace(tzinfo=timezone.utc).astimezone(tz=None).replace(tzinfo=None)
         ))
 
     return history

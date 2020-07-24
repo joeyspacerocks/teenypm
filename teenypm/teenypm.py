@@ -3,7 +3,6 @@ from sys import argv
 import os
 import os.path
 import sqlite3
-from colorama import Fore, Back, Style, init as col_init
 from datetime import datetime, timedelta
 from pprint import pprint
 import math
@@ -13,6 +12,12 @@ import argparse
 import importlib.util
 from collections.abc import MutableMapping
 import uuid
+
+from rich import box
+from rich.console import Console
+from rich.table import Table, Column
+from rich.style import Style
+from rich.theme import Theme
 
 __version__ = '0.1.8'
 
@@ -42,7 +47,7 @@ class Entry:
         parts = list(filter(lambda line: line != '', self.msg.split('\n')))
 
         if len(parts) > 1:
-            return '{} {}'.format(parts[0], bluebg('[+]'))
+            return '{} [bold white on blue][[+]]'.format(parts[0])
         elif len(parts) > 0:
             return parts[0]
         else:
@@ -50,9 +55,9 @@ class Entry:
 
     def displayid(self):
         if self.remote_id:
-            return yellow('{:0>4} '.format(str(self.id))) + white(dim('{}'.format('(gh {:0>2})'.format(self.remote_id))))
+            return '[id.local]{:>4}[/] [id.remote]..{:0>2}[/]'.format(str(self.id), self.remote_id)
         else:
-            return yellow(str(self.id).zfill(4))
+            return '[id.local]{:>4}[/]'.format(str(self.id))
 
 class Event:
     def __init__(self, entry, event, date):
@@ -191,60 +196,19 @@ def display_date(date, full_date):
         now = datetime.now()
         return humanize.naturaltime(now - date)
 
-def show_entries(db, args):
+def show_entries(tpm, console, args):
     tags = args.tags or []
-    all = args.all
-    dates = args.dates
-    show_entries_internal(db, tags, all, dates)
-
-def red(t):
-    return '{}{}{}'.format(Fore.RED, t, Fore.RESET)
-
-def black(t):
-    return '{}{}{}'.format(Fore.BLACK, t, Fore.RESET)
-
-def white(t):
-    return '{}{}{}'.format(Fore.WHITE, t, Fore.RESET)
-
-def cyan(t):
-    return '{}{}{}'.format(Fore.CYAN, t, Fore.RESET)
-
-def yellow(t):
-    return '{}{}{}'.format(Fore.YELLOW, t, Fore.RESET)
-
-def bright(t):
-    return '{}{}{}'.format(Style.BRIGHT, t, Style.NORMAL)
-
-def dim(t):
-    return '{}{}{}'.format(Style.DIM, t, Style.NORMAL)
-
-def normal(t):
-    return '{}{}'.format(Style.NORMAL, t)
-
-def nobg(t):
-    return '{}{}'.format(Back.RESET, t)
-
-def redbg(t):
-    return '{}{}{}'.format(Back.RED, t, Back.RESET)
-
-def bluebg(t):
-    return '{}{}{}'.format(Back.BLUE, t, Back.RESET)
-
-def yellowbg(t):
-    return '{}{}{}'.format(Back.YELLOW, t, Back.RESET)
-
-def show_entries_internal(tpm, tags, all, full_dates):
     if tags and ((tags.startswith('PM') and tags[2:].isdigit()) or tags.isdigit()):
-        show_full_entry(tpm, map_id(tags))
-        return
+        show_full_entry(console, tpm.fetch_entries((), tags)[0])
+    else:
+        show_entries_internal(tpm, console, tags, args.all, args.dates)
 
+def show_entries_internal(tpm, console, tags, all, full_dates):
     total = 0
     open = 0
 
     entries = tpm.fetch_entries(tags, None)
     features = tpm.fetch_features()
-
-    maxtag = 0
 
     buckets = {}
 
@@ -264,10 +228,6 @@ def show_entries_internal(tpm, tags, all, full_dates):
                 bt = t
                 break
 
-        t = ','.join(e.tags)
-        if len(t) > maxtag:
-            maxtag = len(t)
-
         if bt in buckets:
             buckets[bt].append(e)
         else:
@@ -275,78 +235,80 @@ def show_entries_internal(tpm, tags, all, full_dates):
 
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
 
-    print('{}/{} issues {}'.format(white(bright(open)), white(total), dim('| {} | teenypm v{}'.format(now, __version__))))
+    console.print('[white][bold]{}[/bold]/{}[/white] issues [dim]| {} | teenypm v{}'.format(open, total, now, __version__))
+
+    table = Table(
+        "id",
+        "tags",
+        Column("msg", style = "msg"),
+        Column("dates", justify = 'right'),
+        "points",
+        show_header = False,
+        show_edge = False,
+        box = box.SIMPLE,
+        padding = [0, 0, 0, 1]
+    )
 
     for b in buckets:
-        bstyle = dim
+        bstyle = 'bucket.done'
         for e in buckets[b]:
             if e.open:
-                bstyle = bright
+                bstyle = 'bucket.open'
+                break
 
-        print(bstyle(white('{} ({})'.format(b, len(buckets[b])))))
+        table.add_row('{} ({})'.format(b, len(buckets[b])), None, None, None, None, style = bstyle)
 
         for e in buckets[b]:
-            state_style = normal
-            background = nobg
+            row_style = None
 
             if all and not e.open:
-                state_style = dim
-                dates = ' - finished {}'.format(display_date(e.done, full_dates))
+                row_style = Style(dim = True)
+                dates = 'done {}'.format(display_date(e.done, full_dates))
 
             elif e.state == 'doing':
+                row_style = 'state.doing'
                 now = datetime.now()
                 if e.deadline:
-                    if now > e.deadline - timedelta(days=2):
-                        state_style = normal
-                        background = redbg
-                    else:
-                        background = bluebg
-
                     if now > e.deadline:
-                        dates = bright(yellow('(LATE: was due {})'.format(display_date(e.deadline, full_dates))))
+                        dates = '[date.overdue]due {}'.format(display_date(e.deadline, full_dates))
                     else:
-                        dates = yellow(redbg('(due {})'.format(display_date(e.deadline, full_dates))))
+                        dates = '[date.soon]{}'.format(display_date(e.deadline, full_dates))
                 else:
-                    state_style = normal
-                    background = bluebg
-                    dates = dim('({})'.format('added {}'.format(display_date(e.created, full_dates))))
+                    dates = '[date.created]{}'.format('{}'.format(display_date(e.created, full_dates)))
 
             else:
-                dates = dim('({})'.format('added {}'.format(display_date(e.created, full_dates))))
+                dates = '[date.created]{}'.format('{}'.format(display_date(e.created, full_dates)))
 
-            tags = [cyan(t) if t != 'bug' or e.deadline else red('bug') for t in sorted(e.tags)]
+            tags = ['[tag.default]{}[/]'.format(t) if t != 'bug' or e.deadline else '[tag.bug]bug[/]' for t in sorted(e.tags)]
             display_tags = ','.join(tags)
-
-            display_tags += ' ' * (maxtag - len(','.join(e.tags)))
 
             msg = e.summary()
             if e.points > 1:
-                points = cyan(points)
+                points = '[points]{}[/]'.format(str(points))
             else:
                 points = ''
 
-            print(state_style(background('  +- {}  {}  {} {} {}'.format(e.displayid(), display_tags, white(msg), dates, points))))
+            table.add_row(e.displayid(), display_tags, e.summary(), dates, points, style = row_style)
 
-def show_full_entry(tpm, id):
-    entries = tpm.fetch_entries((), id)
-    e = entries[0]
+    console.print(table)
 
-    tags = [cyan(t) if t != 'bug' else red('bug') for t in sorted(e.tags)]
+def show_full_entry(console, e):
+    tags = ['[tag.default]{}[/]'.format(t) if t != 'bug' or e.deadline else '[tag.bug]bug[/ ]' for t in sorted(e.tags)]
     display_tags = ','.join(tags)
     dates = e.created.strftime('%Y-%m-%d %H:%M')
 
     if not e.open:
         dates += ' -> ' + e.done.strftime('%Y-%m-%d %H:%M')
 
-    print(('{} | {} | {} | {}').format(e.displayid(), display_tags, dim(dates), cyan(e.points)))
-    print(white(e.msg))
+    console.print(('{} | {} | [date.created]{}[/] | [points]{}').format(e.displayid(), display_tags, dates, e.points))
+    console.print('[msg]' + e.msg)
 
-def show_tags(tpm, args):
+def show_tags(tpm, console, args):
     c = tpm.db.cursor()
     for row in c.execute('SELECT tag, COUNT(*) as count FROM tag GROUP BY tag ORDER BY tag'):
-        print('{} - {}'.format(cyan(row['tag']), white(row['count'])))
+        console.print('[tag.default]{}[/] - [msg]{}[/]'.format(row['tag'], row['count']))
 
-def add_entry(tpm, args):
+def add_entry(tpm, console, args):
     msg = args.desc
     if args.edit:
         content = from_editor(msg, 0)
@@ -354,27 +316,27 @@ def add_entry(tpm, args):
             msg = ''.join(content)
 
     e = tpm.add_entry(args.tags.split(','), msg, args.points)
-    print('Added {}: {}'.format(e.displayid(), white(e.summary())))
+    console.print('Added {}: [msg]{}'.format(e.displayid(), e.summary()))
 
-def edit_entry(tpm, args):
+def edit_entry(tpm, console, args):
     content = from_editor(args.issue.msg, 0)
     if content != None:
         msg = ''.join(content)
 
     tpm.edit_entry(args.issue, msg)
-    print('Modified {}: {}'.format(args.issue.displayid(), white(args.issue.summary())))
+    console.print('Modified {}: [msg]{}'.format(args.issue.displayid(), args.issue.summary()))
 
-def feature_tag(tpm, args):
+def feature_tag(tpm, console, args):
     tag = args.tag
 
     if args.remove:
         tpm.unfeature_tag(tag)
-        print('Tag {} is no longer a feature'.format(cyan(tag)))
+        console.print('Tag [tag]{}[/] is no longer a feature'.format(tag))
     else:
         tpm.feature_tag(tag)
-        print('Tag {} is now a feature'.format(cyan(tag)))
+        console.print('Tag [tag]{}[/] is now a feature'.format(tag))
 
-def start_entry(tpm, args):
+def start_entry(tpm, console, args):
     id = args.id
     tf = None
 
@@ -384,27 +346,27 @@ def start_entry(tpm, args):
         tf_str = args.timeframe
         tf = dateparser.parse(tf_str, settings={'RELATIVE_BASE': now}).replace(hour=23, minute=59, second=0)
         if tf < now:
-            print(red("ERROR: time flows inexorably forwards.\nPromising to complete an issue in the past will bring you nothing but despair."))
+            console.print("[error]ERROR: time flows inexorably forwards.\nPromising to complete an issue in the past will bring you nothing but despair.")
             quit()
 
     tpm.start_entry(args.issue, tf)
-    print('Started {}'.format(tpm.displayid(id)))
+    console.print('Started {}'.format(args.issue.displayid()))
     if tf:
-        print('Your deadline is midnight {}'.format(red(tf.strftime('%Y-%m-%d'))))
+        console.print('Your deadline is midnight [date.soon]{}'.format(tf.strftime('%Y-%m-%d')))
 
-def backlog_entry(tpm, args):
+def backlog_entry(tpm, console, args):
     tpm.backlog_entry(args.issue)
-    print('Moved {} to backlog'.format(args.issue.displayid()))
+    console.print('Moved {} to backlog'.format(args.issue.displayid()))
 
-def end_entry(tpm, args):
+def end_entry(tpm, console, args):
     tpm.end_entry(args.issue)
-    print('Ended {}{:0>4}{}'.format(args.issue.displayid()))
+    console.print('Ended {}'.format(args.issue.displayid()))
 
-def end_entry_and_commit(tpm, args):
-    end_entry(tpm, args)
+def end_entry_and_commit(tpm, console, args):
+    end_entry(tpm, console, args)
     os.system('git commit -a -m "{}"'.format('PM{:04} - {}'.format(args.issue.id, args.issue.msg)))
 
-def tag_entry(tpm, args):
+def tag_entry(tpm, console, args):
     tag = args.tag
     id = args.id
     issue = args.issue
@@ -412,110 +374,19 @@ def tag_entry(tpm, args):
     if args.remove:
         if tag in issue.tags:
             tpm.untag_entry(issue, tag)
-            print('Untagged {} with {}'.format(issue.displayid(), cyan(tag)))
+            console.print('Untagged {} with [tag.default]{}'.format(issue.displayid(), tag))
         else:
-            print('{} wasn\'t tagged with {}'.format(issue.displayid(), cyan(tag)))
+            console.print('{} wasn\'t tagged with [tag.default]{}'.format(issue.displayid(), tag))
     else:
         if tag not in issue.tags:
             tpm.tag_entry(issue, tag)
-            print('Tagged {} with {}'.format(issue.displayid(), cyan(tag)))
+            console.print('Tagged {} with [tag.default]{}'.format(issue.displayid(), tag))
         else:
-            print('{} already tagged with {}'.format(issue.displayid(), cyan(tag)))
+            console.print('{} already tagged with [tag.default]{}'.format(issue.displayid(), tag))
 
-def remove_entry(tpm, args):
+def remove_entry(tpm, console, args):
     tpm.remove_entry(args.issue)
-    print('Deleted {}'.format(args.issue.displayid()))
-
-def burndown(tpm, args):
-    tags = args.tags.split(',') if args.tags else []
-
-    first_date = None
-    created = {}
-    done = {}
-
-    for e in tpm.fetch_entries(tags, None):
-        ckey = e.created.strftime("%Y%j")
-        created[ckey] = created.get(ckey, 0) + e.points
-
-        if not first_date or e.created < first_date:
-            first_date = e.created
-
-        if not e.open:
-            dkey = e.done.strftime("%Y%j")
-            done[dkey] = done.get(dkey, 0) + e.points
-
-    total = 0
-
-    h = 20
-    if first_date == None:
-        days = 0
-    else:
-        days = int((datetime.today() - first_date).days) + 1
-
-    screen = [[0 for x in range(days)] for y in range(h)]
-    maxy = 0
-    first = 0
-    last = 0
-
-    for n in range(days):
-        date = first_date + timedelta(days=n)
-        key = date.strftime("%Y%j")
-
-        total = total + created.get(key, 0) - done.get(key, 0)
-
-        if n == 0:
-            first = total
-        
-        if n == days - 1:
-            last = total
-
-        screen[total][n] = '+'
-        if total > maxy:
-            maxy = total
-
-    if first == last:
-        velocity = 1
-    else:
-        velocity = (first - last) / days
-
-    predicted = math.ceil(last / velocity)
-
-    # print screen
-
-    print()
-    empty = '  '
-    y_end = [None] * days
-    for y in range(maxy,-1,-1):
-        line = ''
-        for x in range(days):
-            if screen[y][x]:
-                y_end[x] = y
-                if x < days - 1:
-                    line += cyan('⭑ ')
-                else:
-                    line += white('★ ')
-            elif y_end[x] and y < y_end[x]:
-                if x == days - 1:
-                    line += white('. ')
-                else:
-                    line += dim('. ')
-            else:
-                line += empty
-
-        for x in range(predicted):
-            if y == math.floor((predicted - x) * velocity):
-                if x == predicted - 1:
-                    line += '🏁'
-                else:
-                    line += dim(cyan('● '))
-            else:
-                line += empty
-        
-        print(line)
-
-    end_date = date.today() + timedelta(days=predicted)
-
-    print('Finish in {} days on {} {}'.format(bright(white(predicted)), bright(white(end_date.strftime('%A %d %b %Y'))), dim("(velocity {:.1f})".format(velocity))))
+    console.print('Deleted {}'.format(args.issue.displayid()))
 
 def from_editor(start_text, start_line):
     tmp_file = '_pm_.txt'
@@ -547,7 +418,7 @@ def from_editor(start_text, start_line):
 
     return content
 
-def make_a_plan(tpm, args):
+def make_a_plan(tpm, console, args):
     tag = args.tag
     help_text = '# One line for each issue, with optional tags and points.\n#  <desc> [[<tag>,...]] [points]\n# For example:\n#  Sort out the thing there [bug] 2\n\n'
     content = from_editor(help_text, help_text.count('\n') + 1)
@@ -574,7 +445,7 @@ def make_a_plan(tpm, args):
                 points = 1
 
             e = tpm.add_entry(tags, task['msg'], points)
-            print('Added {}: {}'.format(e.displayid(), white(msg)))
+            console.print('Added {}: [msg]{}'.format(e.displayid(), msg))
 
 def sync(tpm):
     config = tpm.config()
@@ -603,8 +474,15 @@ def map_id(id):
         return id[2:]
     return id
 
-def remote_plugin(tpm, args):
+def remote_plugin(tpm, console, args):
     plugin = import_plugin(args.plugin)
+
+    if not plugin:
+        console.print('[error]ERROR: plugin [white bold]{}[/] not found - available plugins are:'.format(args.plugin))
+        for ap in available_plugins():
+            console.print('  - [white]' + ap)
+        exit(0)
+
     config = tpm.config()
 
     plugin_cp = 'plugin.' + args.plugin
@@ -612,35 +490,38 @@ def remote_plugin(tpm, args):
 
     if args.remove:
         if not plugin_enabled:
-            print('Remote {} has not been setup'.format(args.plugin))
+            console.print('Remote {} has not been setup'.format(args.plugin))
         else:
             plugin.remove(config)
             del config[plugin_cp]
             activate_plugins.remove(args.plugin)
-            print('Removed {} remote'.format(args.plugin))
+            console.print('Removed {} remote'.format(args.plugin))
     else:
         if plugin_enabled:
-            print('Remote {} is already configured'.format(args.plugin))
+            console.print('Remote {} is already configured'.format(args.plugin))
         else:
             if plugin.setup(config):
                 config[plugin_cp] = 'true'
                 activate_plugins.append(args.plugin)
-                print('Remote {} has been set up'.format(args.plugin))
+                console.print('Remote {} has been set up'.format(args.plugin))
 
     # TEST
     sync(tpm)
 
-def import_plugin(p):
+def available_plugins():
     plugins_dir = os.path.join(os.path.dirname(__file__), 'plugins')
 
     plugins = {}
     for f in [f for f in os.listdir(plugins_dir) if f.endswith('.py')]:
         plugins[f.split('.')[0]] = os.path.join(plugins_dir, f)
+    
+    return plugins
+
+def import_plugin(p):
+    plugins = available_plugins()
 
     if p not in plugins:
-        print(red('ERROR:') + ' plugin {} not found - available plugins are:'.format(white(bright(p))))
-        for ap in plugins:
-            print('  - ' + ap)
+        return None
 
     spec = importlib.util.spec_from_file_location("plugins." + p, plugins[p])
     plugin = importlib.util.module_from_spec(spec)
@@ -662,7 +543,6 @@ def main():
     parser = argparse.ArgumentParser(description="teenypm - a teeny, tiny CLI project manager | v" + __version__)
     parser.add_argument('-a', '--all', help='Show all issues, even closed', action="store_true")
     parser.add_argument('-d', '--dates', help='Show full dates', action="store_true")
-    parser.add_argument('-nc', '--nocolour', help='Disable colour output', action="store_true")
 
     subparsers = parser.add_subparsers(title='subcommands', metavar="<command>", help='sub-command help')
 
@@ -724,10 +604,6 @@ def main():
     p_commit.add_argument('id', type=str, help='issue id')
     p_commit.set_defaults(func=end_entry_and_commit)
 
-    p_burn = subparsers.add_parser('burn', help='display a burndown chart')
-    p_burn.add_argument('tags', type=str, nargs='?', help='comma-seperated tags')
-    p_burn.set_defaults(func=burndown)
-
     p_remote = subparsers.add_parser('remote', help='integrate a remote API')
     p_remote.add_argument('plugin', type=str, help='"supported: github"')
     p_remote.add_argument('-r', '--remove', help='remove remote', action='store_true')
@@ -735,21 +611,35 @@ def main():
 
     args = parser.parse_args()
 
-    col_init(strip = args.nocolour)
+    console = Console(theme = Theme({
+        "id.local": "yellow",
+        "id.remote": "dim white",
+        "tag.default": "cyan",
+        "tag.bug": "bold red",
+        "date.overdue": "bold white on red",
+        "date.soon": "bold yellow",
+        "date.created": "dim",
+        "state.doing": "bold",
+        "bucket.done": "dim white",
+        "bucket.open": "bold white",
+        "points": "cyan",
+        "msg" : "white",
+        "error": "red"
+    }))
 
     if hasattr(args, 'id'):
         args.id = map_id(args.id)
 
         entries = tpm.fetch_entries([], args.id)
         if len(entries) == 0:
-            print('{} doesn\'t exist'.format(yellow(str(args.id).zfill(4))))
+            console.print('[id.local]{:>4}[/] doesn\'t exist'.format(args.id))
             exit(0)
         args.issue = entries[0]
 
     if not hasattr(args, 'func'):
-        show_entries_internal(tpm, [], args.all, args.dates)
+        show_entries_internal(tpm, console, [], args.all, args.dates)
     else:
-        args.func(tpm, args)
+        args.func(tpm, console, args)
 
     db.close()
 

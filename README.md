@@ -26,6 +26,7 @@ When run `pm` will create a small SQLite file in your current working directory 
 Subcommands:
 
 * `pm show [-a] [-d] [tags]` - show issues, optionally including closed (`-a`), with full dates (`-d`) and/or filtering by tags
+* `pm doing [-d]` - show started issues, optionally with full dates (`-d`)
 * `pm tags` - show a summary of all tags with issue counts
 * `pm add [-e] <tags> <title> [points]` - add an issue with optional complexity points (defaults to 1), optionally opening an editor (`-e`) for multiline text
 * `pm edit <id>` - open an editor to edit issue text

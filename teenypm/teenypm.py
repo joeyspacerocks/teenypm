@@ -65,10 +65,6 @@ class Event:
         self.event = event
         self.date = date
 
-class CustomDictOne(dict):
-   def __init__(self,*arg,**kw):
-      super(CustomDictOne, self).__init__(*arg, **kw)
-
 class Config(MutableMapping):
     def __init__(self, db):
         self.storage = dict()
@@ -99,61 +95,55 @@ class Config(MutableMapping):
         return len(self.storage)
 
 class TeenyPM():
-    def __init__(self, db):
-        self.db = db
-
-    def fetch_features(self):
-        return active_plugins[0].fetch_features(self.config())
+    def __init__(self, config):
+        self.config = config
 
     def fetch_entries(self, tags, id):
-        return active_plugins[0].fetch_issues(self.config(), tags, id)
+        return active_plugins[0].fetch_issues(self.config, tags, id)
 
     def add_entry(self, tags, msg, points):
         e = Entry(None, 'backlog', msg, points, None, tags, [], None)
 
         for p in reversed(active_plugins):
-            p.add_entry(self.config(), e)
+            p.add_entry(self.config, e)
 
         return e
 
     def edit_entry(self, issue, msg):
         for p in reversed(active_plugins):
-            id = p.update_entry(self.config(), issue, msg)
+            id = p.update_entry(self.config, issue, msg)
 
     def feature_tag(self, tag):
         for p in reversed(active_plugins):
-            id = p.add_feature(self.config(), tag)
+            id = p.add_feature(self.config, tag)
 
     def unfeature_tag(self, tag):
         for p in reversed(active_plugins):
-            id = p.remove_feature(self.config(), tag)
+            id = p.remove_feature(self.config, tag)
 
     def start_entry(self, issue, deadline = None):
         for p in reversed(active_plugins):
-            p.start_entry(self.config(), issue, deadline)
+            p.start_entry(self.config, issue, deadline)
 
     def end_entry(self, issue):
         for p in reversed(active_plugins):
-            p.end_entry(self.config(), issue)
+            p.end_entry(self.config, issue)
 
     def backlog_entry(self, issue):
         for p in reversed(active_plugins):
-            p.backlog_entry(self.config(), issue)
+            p.backlog_entry(self.config, issue)
 
     def tag_entry(self, issue, tag):
         for p in reversed(active_plugins):
-            p.tag_entry(self.config(), issue, tag)
+            p.tag_entry(self.config, issue, tag)
 
     def untag_entry(self, issue, tag):
         for p in reversed(active_plugins):
-            p.untag_entry(self.config(), issue, tag)
+            p.untag_entry(self.config, issue, tag)
 
     def remove_entry(self, issue):
         for p in reversed(active_plugins):
-            p.remove_entry(self.config(), issue)
-
-    def config(self):
-        return Config(self.db)
+            p.remove_entry(self.config, issue)
 
 def init_db():
     filename = 'pm.db'
@@ -203,12 +193,15 @@ def show_entries(tpm, console, args):
     else:
         show_entries_internal(tpm, console, tags, args.all, args.dates)
 
-def show_entries_internal(tpm, console, tags, all, full_dates):
+def doing_entries(tpm, console, args):
+    show_entries_internal(tpm, console, [], False, args.dates, True)
+
+def show_entries_internal(tpm, console, tags, all, full_dates, started = False):
     total = 0
     open = 0
 
     entries = tpm.fetch_entries(tags, None)
-    features = tpm.fetch_features()
+    features = active_plugins[0].fetch_features(tpm.config)
 
     buckets = {}
 
@@ -216,6 +209,9 @@ def show_entries_internal(tpm, console, tags, all, full_dates):
         total += 1
 
         if not all and not e.open:
+            continue
+
+        if started and not e.state == 'doing':
             continue
 
         if e.open:
@@ -448,7 +444,7 @@ def make_a_plan(tpm, console, args):
             console.print('Added {}: [msg]{}'.format(e.displayid(), msg))
 
 def sync(tpm):
-    config = tpm.config()
+    config = tpm.config
 
     p1 = active_plugins[0]
     p2 = active_plugins[1]
@@ -483,7 +479,7 @@ def remote_plugin(tpm, console, args):
             console.print('  - [white]' + ap)
         exit(0)
 
-    config = tpm.config()
+    config = tpm.config
 
     plugin_cp = 'plugin.' + args.plugin
     plugin_enabled = plugin_cp in config
@@ -536,9 +532,10 @@ def activate_plugins(config):
 
 def main():
     db = init_db()
-    tpm = TeenyPM(db)
+    config = Config(db)
+    tpm = TeenyPM(config)
 
-    activate_plugins(tpm.config())
+    activate_plugins(tpm.config)
     
     parser = argparse.ArgumentParser(description="teenypm - a teeny, tiny CLI project manager | v" + __version__)
     parser.add_argument('-a', '--all', help='Show all issues, even closed', action="store_true")
@@ -551,6 +548,10 @@ def main():
     p_show.add_argument('-a', '--all', help='Show all issues, even closed', action="store_true")
     p_show.add_argument('-d', '--dates', help='Show full dates', action="store_true")
     p_show.set_defaults(func=show_entries)
+
+    p_show = subparsers.add_parser('doing', help='show issues in progress')
+    p_show.add_argument('-d', '--dates', help='Show full dates', action="store_true")
+    p_show.set_defaults(func=doing_entries)
 
     p_add = subparsers.add_parser('add', help='add an issue')
     p_add.add_argument('tags', type=str, help='comma-seperated tags')

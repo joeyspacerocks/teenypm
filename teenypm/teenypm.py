@@ -361,6 +361,7 @@ def end_entry(tpm, console, args):
 def end_entry_and_commit(tpm, console, args):
     end_entry(tpm, console, args)
     os.system('git commit -a -m "{}"'.format('PM{:04} - {}'.format(args.issue.id, args.issue.msg)))
+    os.system('git lg -n 1')
 
 def tag_entry(tpm, console, args):
     tag = args.tag

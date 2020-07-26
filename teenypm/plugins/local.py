@@ -29,18 +29,22 @@ def fetch_issues(config, tags = [], id = None):
     c = config.db.cursor()
     result = []
     deadlines = {}
+    entry_tags = {}
+
+    for row in c.execute('SELECT entry, GROUP_CONCAT(tag) as tags FROM tag GROUP BY entry'):
+        entry_tags[row['entry']] = row['tags'].split(',')
 
     for row in c.execute('SELECT entry, date as "date [timestamp]" FROM deadline'):
         deadlines[row['entry']] = row['date']
 
-    sql = 'SELECT e.rowid AS id, state, msg, points, remote_id, GROUP_CONCAT(tag) AS tags FROM tag t INNER JOIN entry e ON e.rowid = t.entry'
+    sql = 'SELECT rowid AS id, state, msg, points, remote_id FROM entry'
     if id:
-        c.execute(sql + ' WHERE e.rowid = ? GROUP BY e.rowid', (id,))
+        c.execute(sql + ' WHERE id = ?', (id,))
     else:
-        c.execute(sql + ' GROUP BY e.rowid')
+        c.execute(sql)
 
     for row in c:
-        etags = row['tags'].split(',')
+        etags = entry_tags.get(row['id'], [])
 
         match = False
         if len(tags) > 0:

@@ -259,7 +259,7 @@ def show_entries_internal(tpm, console, tags, all, full_dates, started = False):
 
             if all and not e.open:
                 row_style = Style(dim = True)
-                dates = 'done {}'.format(display_date(e.done, full_dates))
+                dates = 'closed {}'.format(display_date(e.done, full_dates))
 
             elif e.state == 'doing':
                 row_style = 'state.doing'
@@ -311,7 +311,9 @@ def add_entry(tpm, console, args):
         if content != None:
             msg = ''.join(content)
 
-    e = tpm.add_entry(args.tags.split(','), msg, args.points)
+    tags = args.tag.split(',') if args.tag else []
+
+    e = tpm.add_entry(tags, msg, args.points)
     console.print('Added {}: [msg]{}'.format(e.displayid(), e.summary()))
 
 def edit_entry(tpm, console, args):
@@ -555,9 +557,9 @@ def main():
     p_show.set_defaults(func=doing_entries)
 
     p_add = subparsers.add_parser('add', help='add an issue')
-    p_add.add_argument('tags', type=str, help='comma-seperated tags')
     p_add.add_argument('desc', type=str, help='issue description')
     p_add.add_argument('points', type=int, nargs='?', default=1, help='effort points (defaults to 1)')
+    p_add.add_argument('-t', '--tag', type=str, help='comma-seperated tags')
     p_add.add_argument('-e', '--edit', help='Effort points (defaults to 1)', action="store_true")
     p_add.set_defaults(func=add_entry)
 

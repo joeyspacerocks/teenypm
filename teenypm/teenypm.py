@@ -231,7 +231,7 @@ def show_entries_internal(tpm, console, tags, all, full_dates, started = False):
 
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
 
-    console.print('[white][bold]{}[/bold]/{}[/white] issues [dim]| {} | teenypm v{}'.format(open, total, now, __version__))
+    console.print('[white][bold]{}[/bold]/{}[/white] issues [dim]| {} | teenypm v{}'.format(open, total, now, __version__), highlight=False)
 
     table = Table(
         "id",

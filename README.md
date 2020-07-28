@@ -19,9 +19,13 @@ Once installed you can execute it using:
 
 When run `pm` will create a small SQLite file in your current working directory named `pm.db`.
 
-* `pm [-a] [-d]` - show open issues, optionally including closed (`-a`), with full dates (`-d`)
+* `pm [-a] [-d]` - show issues, optionally including closed (`-a`), with full dates (`-d`)
 * `pm -h` - show help
 * `pm <command> -h` show help for command
+
+Optional global flags:
+
+* `-s` - force a sync if a remote system linked (default is to only sync if an hour since last sync)
 
 Subcommands:
 

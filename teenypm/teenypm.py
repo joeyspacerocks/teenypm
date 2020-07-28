@@ -3,6 +3,7 @@ from sys import argv
 import os
 import os.path
 import sqlite3
+import time
 from datetime import datetime, timedelta
 from pprint import pprint
 import math
@@ -446,8 +447,19 @@ def make_a_plan(tpm, console, args):
             e = tpm.add_entry(tags, task['msg'], points)
             console.print('Added {}: [msg]{}'.format(e.displayid(), msg))
 
-def sync(tpm):
-    config = tpm.config
+def sync(config, force):
+    now = int(time.time())
+
+    if not force:
+        last_sync = int(config.get('last.sync', 0))
+
+        if now - last_sync < 60 * 60:
+            return
+
+    config['last.sync'] = now
+
+    if len(active_plugins) == 1:
+        return
 
     p1 = active_plugins[0]
     p2 = active_plugins[1]
@@ -489,23 +501,21 @@ def remote_plugin(tpm, console, args):
 
     if args.remove:
         if not plugin_enabled:
-            console.print('Remote {} has not been setup'.format(args.plugin))
+            console.print('Remote [remote]{}[/] has not been setup'.format(args.plugin))
         else:
             plugin.remove(config)
             del config[plugin_cp]
             activate_plugins.remove(args.plugin)
-            console.print('Removed {} remote'.format(args.plugin))
+            console.print('Removed [remote]{}[/] remote'.format(args.plugin))
     else:
         if plugin_enabled:
-            console.print('Remote {} is already configured'.format(args.plugin))
+            console.print('Remote [remote]{}[/] is already configured'.format(args.plugin))
         else:
             if plugin.setup(config):
                 config[plugin_cp] = 'true'
                 activate_plugins.append(args.plugin)
-                console.print('Remote {} has been set up'.format(args.plugin))
-
-    # TEST
-    sync(tpm)
+                console.print('Remote [remote]{}[/] has been set up .. syncing issues ..'.format(args.plugin))
+                sync(config, True)
 
 def available_plugins():
     plugins_dir = os.path.join(os.path.dirname(__file__), 'plugins')
@@ -536,13 +546,15 @@ def activate_plugins(config):
 def main():
     db = init_db()
     config = Config(db)
+
     tpm = TeenyPM(config)
 
     activate_plugins(tpm.config)
-    
+
     parser = argparse.ArgumentParser(description="teenypm - a teeny, tiny CLI project manager | v" + __version__)
     parser.add_argument('-a', '--all', help='Show all issues, even closed', action="store_true")
     parser.add_argument('-d', '--dates', help='Show full dates', action="store_true")
+    parser.add_argument('-s', '--force-sync', help='Force a sync with remote store', action="store_true")
 
     subparsers = parser.add_subparsers(title='subcommands', metavar="<command>", help='sub-command help')
 
@@ -628,7 +640,8 @@ def main():
         "bucket.open": "bold white",
         "points": "cyan",
         "msg" : "white",
-        "error": "red"
+        "error": "red",
+        "remote": "bold white"
     }))
 
     if hasattr(args, 'id'):
@@ -639,6 +652,8 @@ def main():
             console.print('[id.local]{:>4}[/] doesn\'t exist'.format(args.id))
             exit(0)
         args.issue = entries[0]
+
+    sync(config, args.force_sync)
 
     if not hasattr(args, 'func'):
         show_entries_internal(tpm, console, [], args.all, args.dates)

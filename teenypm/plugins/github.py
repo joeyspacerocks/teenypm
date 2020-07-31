@@ -5,11 +5,13 @@ import pprint
 import os
 import sys
 import requests
+from pathlib import Path
 from teenypm import Entry
 
-API_TOKEN_KEY = 'github.api.token'
 API_USER_KEY = 'github.api.user'
 API_REPO_KEY = 'github.api.repo'
+
+TOKEN_FILE = Path.home() / '.teenypm' / 'github.conf'
 
 def parse_git_config():
     info = {}
@@ -40,21 +42,33 @@ def quiet_input(msg, default):
         sys.exit(0)
 
 def setup(config):
-    if API_TOKEN_KEY in config:
-        return True
-
     defaults = parse_git_config()
 
     config[API_USER_KEY] = quiet_input('Enter the GitHub user for API access', defaults.get('user', ''))
-    config[API_TOKEN_KEY] = quiet_input('Enter your GitHub access token', '')
+    api_token = quiet_input('Enter your GitHub access token', '')
     config[API_REPO_KEY] = quiet_input('Enter the GitHub repo', defaults.get('repo', ''))
+ 
+    project_id = config['project.id']
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with TOKEN_FILE.open('a') as fh:
+        fh.write('{}={}\n'.format(project_id, api_token))
 
     return True
 
 def remove(config):
-    config.pop(API_TOKEN_KEY, None)
     config.pop(API_USER_KEY, None)
     config.pop(API_REPO_KEY, None)
+
+    project_id = config['project.id']
+    lines = []
+
+    with TOKEN_FILE.open() as fh:
+        for line in fh:
+            if not line.startswith(project_id):
+                lines.append(line)
+
+    with TOKEN_FILE.open('w') as fh:
+        fh.writelines(lines)
 
 def fetch_issues(config, tags = [], id = None):
     # FIXME: filter by tags / id
@@ -140,8 +154,20 @@ def change_state(config, e, state):
     })
 
 def github_request(config, method, path, data = None):
+    project_id = config['project.id']
+ 
+    with TOKEN_FILE.open() as fh:
+        for line in fh:
+            if line.startswith(project_id):
+                api_token = line.rstrip().split('=')[1]
+                break
+
+    if not api_token:
+        print('Error - no GitHub token configured')
+        return None
+
     url = 'https://api.github.com' + path.format(owner = config[API_USER_KEY], repo = config[API_REPO_KEY])
-    result = requests.request(method, url, auth=(config[API_TOKEN_KEY],config[API_TOKEN_KEY]), json = data)
+    result = requests.request(method, url, auth=(config[API_USER_KEY], api_token), json = data)
 
     if result.status_code >= 200 and result.status_code < 300:
         return result.json()

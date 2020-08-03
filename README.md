@@ -1,7 +1,7 @@
 # teenypm
 A teeny, tiny CLI project manager.
 
-Suitable for solo development projects; stores data in a local SQLite file.
+Suitable for solo development projects; stores data in a local SQLite file, with optional syncing to remote issue systems, such as GitHub.
 
 ## Install
 
@@ -47,6 +47,22 @@ Subcommands:
 *Planned*
 
 * `pm start random` - start a random backlog issue, for those moments of indecision
+
+## GitHub
+
+TeenyPM can also push and pull issues to and from a GitHub repo issues store. To configure this run:
+
+`pm remote github`
+
+You will need a GitHub Personal Access Token with repo access (https://github.com/settings/tokens).
+
+After configuring the integration, teenypm will pull any issues present in the repo and create issues from them. It will also push issues that exist locally into GitHub.
+
+When interacting with issues in teenypm you need to use the teenypm issue id and not the GitHub issue number.
+
+For performance, teenypm will not look for new issues in the remote repo on every use. Instead it will wait for more than an hour to pass since the last sync time. To force it to pull remote issues you can pass the `-s` flag.
+
+Write operations (e.g. adding, modifying or changing an issue state) will immediately push changes to the remote repo.
 
 ## Configuration
 

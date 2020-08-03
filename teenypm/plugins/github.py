@@ -78,6 +78,9 @@ def fetch_issues(config, tags = [], id = None):
 
     issues = []
     for issue in ghi:
+        if 'pull_request' in issue:
+            continue
+
         remote_id = str(issue['number'])
         msg = issue['title']
         if issue['body'] != '':
